@@ -129,10 +129,12 @@ interface EspnScoringPlay {
   penaltyKick?: boolean
   ownGoal?: boolean
   clock?: { displayValue?: string }
-  period?: { number?: number }
+  period?: { number?: number } | number   // ESPN sends both shapes
   team?: { displayName?: string; name?: string }
   participants?: { athlete?: { displayName?: string } }[]
   athletesInvolved?: { displayName?: string }[]
+  type?: { text?: string }
+  text?: string   // fallback: "Goal - Saudi Arabia (Al-Buraikan)"
 }
 
 function yyyymmdd(d: Date): string {
@@ -148,40 +150,65 @@ async function fetchScoreboard(dates: string): Promise<EspnEvent[]> {
   } catch { return [] }
 }
 
-/** Fetch goal-scorer data from the ESPN summary (play-by-play) endpoint. */
+function periodNumber(p: EspnScoringPlay['period']): number {
+  if (!p) return 1
+  if (typeof p === 'number') return p
+  return p.number ?? 1
+}
+
+function playerFromPlay(play: EspnScoringPlay): string {
+  // Structured participant data
+  const name =
+    play.participants?.[0]?.athlete?.displayName ??
+    play.athletesInvolved?.[0]?.displayName
+  if (name) return name
+  // Fallback: parse "(Name)" from text field e.g. "Goal - Saudi Arabia (Al-Buraikan)"
+  if (play.text) {
+    const m = play.text.match(/\(([^)]+)\)/)
+    if (m) return m[1].trim()
+  }
+  return '?'
+}
+
+/** Fetch goal-scorer data from the ESPN summary endpoint. */
 async function fetchScoringPlays(eventId: string): Promise<GoalEvent[]> {
   try {
     const res = await fetch(`${ESPN_SUMMARY}?event=${eventId}`)
     if (!res.ok) return []
     const json = await res.json()
 
-    const plays: EspnScoringPlay[] = (
-      json.scoringPlays ??
-      json.competitions?.[0]?.scoringPlays ??
-      (json.plays as EspnScoringPlay[] | undefined)?.filter(p => p.scoringPlay) ??
-      []
-    )
+    // ESPN returns scoring plays under several possible paths — try all.
+    // scoringPlays array entries are implicitly all goals; don't filter by .scoringPlay.
+    // competitions[0].details contains ALL events — filter by type or scoringPlay flag.
+    let plays: EspnScoringPlay[] = []
+
+    if (Array.isArray(json.scoringPlays) && json.scoringPlays.length > 0) {
+      plays = json.scoringPlays
+    } else if (Array.isArray(json.competitions?.[0]?.scoringPlays)) {
+      plays = json.competitions[0].scoringPlays
+    } else if (Array.isArray(json.competitions?.[0]?.details)) {
+      plays = (json.competitions[0].details as EspnScoringPlay[]).filter(
+        p => p.scoringPlay === true || p.type?.text?.toLowerCase().includes('goal'),
+      )
+    } else if (Array.isArray(json.plays)) {
+      plays = (json.plays as EspnScoringPlay[]).filter(p => p.scoringPlay === true)
+    }
 
     const goals: GoalEvent[] = []
     for (const play of plays) {
-      if (!play.scoringPlay) continue
       const teamId = NAME_TO_ID[normalize(play.team?.displayName ?? play.team?.name ?? '')]
       if (!teamId) continue
 
-      const period = play.period?.number ?? 1
+      const period = periodNumber(play.period)
       const { minute, extra } = parseClockDisplay(play.clock?.displayValue, period)
-      const playerName =
-        play.participants?.[0]?.athlete?.displayName ??
-        play.athletesInvolved?.[0]?.displayName ??
-        '?'
 
       goals.push({
         teamId,
-        playerName,
+        playerName:  playerFromPlay(play),
         minute,
         extraMinute: extra,
-        isPenalty:  play.penaltyKick ?? false,
-        isOwnGoal:  play.ownGoal ?? false,
+        isPenalty:   play.penaltyKick ?? false,
+        isOwnGoal:   play.ownGoal ?? false,
       })
     }
 
