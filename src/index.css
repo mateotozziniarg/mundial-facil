@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@layer base {
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { color-scheme: dark; }
+  body {
+    background: #0a0e1a;
+    color: #e2e8f0;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-[#1e2d45] bg-[#111827];
+  }
+  .card2 {
+    @apply rounded-xl border border-[#1e2d45] bg-[#1a2233];
+  }
+}
+
+/* Gradient background mesh */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 40% at 20% -10%, rgba(59,130,246,0.09) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 30% at 80% 110%, rgba(139,92,246,0.08) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+#root { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp 0.25s ease both; }
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+.live-pulse { animation: livePulse 1.4s ease-in-out infinite; }
