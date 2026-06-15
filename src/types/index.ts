@@ -11,6 +11,15 @@ export interface Team {
 
 export type MatchStatus = 'scheduled' | 'live' | 'finished'
 
+export interface GoalEvent {
+  teamId: string          // team that scored (benefited)
+  playerName: string
+  minute: number
+  extraMinute?: number | null
+  isPenalty?: boolean
+  isOwnGoal?: boolean
+}
+
 export interface Match {
   id: number
   homeTeamId: string
@@ -24,6 +33,14 @@ export interface Match {
   city: string
   group: GroupId | null  // null for knockout
   stage: Stage
+  // Live-state fields — populated by ESPN refresh, absent on static fixtures
+  extraMinute?: number | null   // stoppage-time addition (e.g. "45+3'" → extraMinute=3)
+  period?: number | null        // 1=1st half, 2=2nd half, 3=ET1st, 4=ET2nd
+  isHalftime?: boolean
+  aet?: boolean                 // ended after extra time
+  homePenalties?: number | null // penalty-shootout score
+  awayPenalties?: number | null
+  scorers?: GoalEvent[]
 }
 
 export type Stage =

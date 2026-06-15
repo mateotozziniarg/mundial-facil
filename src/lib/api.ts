@@ -1,38 +1,46 @@
-import type { MatchStatus } from '../types'
+import type { MatchStatus, GoalEvent } from '../types'
 
 /**
- * Live data from ESPN's free, public, no-key scoreboard API.
- * CORS-enabled, works directly from the browser. No API key needed.
- * Returns live scores + match minute for the FIFA World Cup.
+ * Live data from ESPN's free, public, no-key scoreboard + summary APIs.
+ * CORS-enabled — works directly from the browser. No API key needed.
  */
-const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard'
+const ESPN_BASE    = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard'
+const ESPN_SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary'
 
-/** A live update matched to our fixtures by the team pair (ESPN ids differ from ours). */
 export interface LiveUpdate {
   homeId: string
   awayId: string
   homeScore: number | null
   awayScore: number | null
   minute: number | null
+  extraMinute: number | null
+  period: number              // 1=1st half, 2=2nd half, 3=ET1, 4=ET2
+  isHalftime: boolean
   status: MatchStatus
+  aet: boolean
+  homePenalties: number | null
+  awayPenalties: number | null
+  scorers: GoalEvent[]
 }
 
-// ESPN English country name (normalized) -> our internal team id
+// ESPN English name (normalised) → our internal team id
 const NAME_TO_ID: Record<string, string> = {
-  'mexico': 'MEX', 'south africa': 'RSA', 'south korea': 'KOR', 'korea republic': 'KOR', 'korea': 'KOR',
+  'mexico': 'MEX', 'south africa': 'RSA',
+  'south korea': 'KOR', 'korea republic': 'KOR', 'korea': 'KOR',
   'czechia': 'CZE', 'czech republic': 'CZE',
   'canada': 'CAN', 'bosnia and herzegovina': 'BIH', 'bosnia & herzegovina': 'BIH', 'bosnia': 'BIH',
   'qatar': 'QAT', 'switzerland': 'SUI',
   'brazil': 'BRA', 'morocco': 'MAR', 'haiti': 'HAI', 'scotland': 'SCO',
-  'united states': 'USA', 'usa': 'USA', 'paraguay': 'PAR', 'turkey': 'TUR', 'turkiye': 'TUR', 'australia': 'AUS',
-  'germany': 'GER', 'ivory coast': 'CIV', "cote d'ivoire": 'CIV', 'ecuador': 'ECU', 'curacao': 'CUW',
+  'united states': 'USA', 'usa': 'USA', 'paraguay': 'PAR',
+  'turkey': 'TUR', 'turkiye': 'TUR', 'australia': 'AUS',
+  'germany': 'GER', "ivory coast": 'CIV', "cote d'ivoire": 'CIV', 'ecuador': 'ECU', 'curacao': 'CUW',
   'netherlands': 'NED', 'japan': 'JPN', 'sweden': 'SWE', 'tunisia': 'TUN',
   'belgium': 'BEL', 'egypt': 'EGY', 'iran': 'IRN', 'ir iran': 'IRN', 'new zealand': 'NZL',
   'spain': 'ESP', 'uruguay': 'URU', 'saudi arabia': 'KSA', 'cape verde': 'CPV', 'cabo verde': 'CPV',
   'france': 'FRA', 'senegal': 'SEN', 'norway': 'NOR', 'iraq': 'IRQ',
   'argentina': 'ARG', 'austria': 'AUT', 'jordan': 'JOR', 'algeria': 'ALG',
-  'portugal': 'POR', 'colombia': 'COL', 'uzbekistan': 'UZB', 'dr congo': 'COD', 'congo dr': 'COD',
-  'democratic republic of the congo': 'COD',
+  'portugal': 'POR', 'colombia': 'COL', 'uzbekistan': 'UZB',
+  'dr congo': 'COD', 'congo dr': 'COD', 'democratic republic of the congo': 'COD',
   'england': 'ENG', 'croatia': 'CRO', 'ghana': 'GHA', 'panama': 'PAN',
 }
 
@@ -40,88 +48,234 @@ function normalize(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
 }
 
-/** Resolve an ESPN competitor to our internal team id, trying several fields. */
-function resolveTeamId(team: { displayName?: string; name?: string; location?: string; shortDisplayName?: string }): string | null {
-  for (const candidate of [team.displayName, team.name, team.location, team.shortDisplayName]) {
-    if (!candidate) continue
-    const id = NAME_TO_ID[normalize(candidate)]
+function resolveId(team: Record<string, string | undefined>): string | null {
+  for (const key of ['displayName', 'name', 'location', 'shortDisplayName']) {
+    const val = team[key]
+    if (!val) continue
+    const id = NAME_TO_ID[normalize(val)]
     if (id) return id
   }
   return null
 }
 
-function mapStatus(state: string, completed: boolean): MatchStatus {
-  if (completed || state === 'post') return 'finished'
-  if (state === 'in') return 'live'
-  return 'scheduled'
+/**
+ * ESPN gives displayClock as "MM:SS" (e.g. "47:30") counting up.
+ * We convert to { minute, extra } where extra is stoppage time.
+ * Also handles "45+2" format that some endpoints use.
+ */
+function parseClockDisplay(
+  displayClock: string | undefined,
+  period: number,
+): { minute: number; extra: number | null } {
+  if (!displayClock) return { minute: 0, extra: null }
+
+  // "45+2" explicit stoppage format
+  const plusMatch = displayClock.match(/^(\d+)\+(\d+)/)
+  if (plusMatch) return { minute: parseInt(plusMatch[1]), extra: parseInt(plusMatch[2]) }
+
+  // "MM:SS" format — take only the minutes
+  const colonMatch = displayClock.match(/^(\d+):(\d+)/)
+  if (colonMatch) {
+    const mins = parseInt(colonMatch[1])
+    const cap = period === 1 ? 45 : period === 2 ? 90 : period === 3 ? 105 : 120
+    if (mins > cap) return { minute: cap, extra: mins - cap }
+    return { minute: mins, extra: null }
+  }
+
+  const n = parseInt(displayClock)
+  return isNaN(n) ? { minute: 0, extra: null } : { minute: n, extra: null }
 }
 
+function parseEspnStatus(typeName: string, state: string, completed: boolean): {
+  status: MatchStatus
+  isHalftime: boolean
+  aet: boolean
+  hasPenalties: boolean
+} {
+  const ht  = typeName.includes('HALFTIME')
+  const fin = completed || state === 'post'
+  const pen = fin && typeName.includes('PEN')
+  const aet = fin && (pen || typeName.includes('AET') || typeName.includes('OT_') || typeName.includes('OVERTIME'))
+
+  return {
+    status:       fin ? 'finished' : (ht || state === 'in') ? 'live' : 'scheduled',
+    isHalftime:   ht,
+    aet,
+    hasPenalties: pen,
+  }
+}
+
+// — ESPN API shapes (minimal) —
+interface EspnTeam     { displayName?: string; name?: string; location?: string; shortDisplayName?: string }
+interface EspnLinescore { period?: { type?: string; number?: number }; value?: number }
 interface EspnCompetitor {
   homeAway: 'home' | 'away'
-  score: string
-  team: { displayName?: string; name?: string; location?: string; shortDisplayName?: string }
+  score?: string
+  team: EspnTeam
+  linescores?: EspnLinescore[]
+}
+interface EspnStatus {
+  clock?: number
+  displayClock?: string
+  period?: number
+  type: { name: string; state: string; completed: boolean }
 }
 interface EspnEvent {
-  competitions: {
-    competitors: EspnCompetitor[]
-    status: { clock?: number; displayClock?: string; type: { state: string; completed: boolean } }
-  }[]
+  id?: string
+  competitions?: { competitors: EspnCompetitor[]; status: EspnStatus }[]
+}
+interface EspnScoringPlay {
+  scoringPlay?: boolean
+  penaltyKick?: boolean
+  ownGoal?: boolean
+  clock?: { displayValue?: string }
+  period?: { number?: number }
+  team?: { displayName?: string; name?: string }
+  participants?: { athlete?: { displayName?: string } }[]
+  athletesInvolved?: { displayName?: string }[]
 }
 
 function yyyymmdd(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, '')
 }
 
-async function fetchDate(dates: string): Promise<EspnEvent[]> {
-  const res = await fetch(`${ESPN_BASE}?dates=${dates}`)
-  if (!res.ok) return []
-  const json = await res.json()
-  return (json.events ?? []) as EspnEvent[]
+async function fetchScoreboard(dates: string): Promise<EspnEvent[]> {
+  try {
+    const res = await fetch(`${ESPN_BASE}?dates=${dates}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.events ?? []) as EspnEvent[]
+  } catch { return [] }
 }
 
-/** Fetch live/recent fixtures from ESPN; returns updates keyed by team pair. */
+/** Fetch goal-scorer data from the ESPN summary (play-by-play) endpoint. */
+async function fetchScoringPlays(eventId: string): Promise<GoalEvent[]> {
+  try {
+    const res = await fetch(`${ESPN_SUMMARY}?event=${eventId}`)
+    if (!res.ok) return []
+    const json = await res.json()
+
+    const plays: EspnScoringPlay[] = (
+      json.scoringPlays ??
+      json.competitions?.[0]?.scoringPlays ??
+      (json.plays as EspnScoringPlay[] | undefined)?.filter(p => p.scoringPlay) ??
+      []
+    )
+
+    const goals: GoalEvent[] = []
+    for (const play of plays) {
+      if (!play.scoringPlay) continue
+      const teamId = NAME_TO_ID[normalize(play.team?.displayName ?? play.team?.name ?? '')]
+      if (!teamId) continue
+
+      const period = play.period?.number ?? 1
+      const { minute, extra } = parseClockDisplay(play.clock?.displayValue, period)
+      const playerName =
+        play.participants?.[0]?.athlete?.displayName ??
+        play.athletesInvolved?.[0]?.displayName ??
+        '?'
+
+      goals.push({
+        teamId,
+        playerName,
+        minute,
+        extraMinute: extra,
+        isPenalty:  play.penaltyKick ?? false,
+        isOwnGoal:  play.ownGoal ?? false,
+      })
+    }
+
+    return goals.sort((a, b) =>
+      a.minute - b.minute || (a.extraMinute ?? 0) - (b.extraMinute ?? 0),
+    )
+  } catch { return [] }
+}
+
+/** Fetch live / recent World Cup data from ESPN — no API key required. */
 export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
   try {
-    // Cover yesterday→tomorrow (UTC) so we catch every in-progress and just-finished match.
     const now = Date.now()
-    const dateRange = [
+    const dates = [
       yyyymmdd(new Date(now - 864e5)),
       yyyymmdd(new Date(now)),
       yyyymmdd(new Date(now + 864e5)),
     ]
-    const batches = await Promise.all(dateRange.map(fetchDate))
-    const events = batches.flat()
+
+    const eventsArr = await Promise.all(dates.map(fetchScoreboard))
+    const events    = eventsArr.flat()
     if (events.length === 0) return null
 
+    // For live and finished matches, fetch scoring plays in parallel
+    const summaryPromises = new Map<string, Promise<GoalEvent[]>>()
+    for (const ev of events) {
+      if (!ev.id) continue
+      const state = ev.competitions?.[0]?.status?.type?.state
+      if (state === 'in' || state === 'post') {
+        summaryPromises.set(ev.id, fetchScoringPlays(ev.id))
+      }
+    }
+    const scorersByEvent = new Map<string, GoalEvent[]>()
+    await Promise.all(
+      [...summaryPromises.entries()].map(async ([id, p]) => {
+        scorersByEvent.set(id, await p)
+      }),
+    )
+
     const updates: LiveUpdate[] = []
+
     for (const ev of events) {
       const comp = ev.competitions?.[0]
       if (!comp) continue
-      const home = comp.competitors.find(c => c.homeAway === 'home')
-      const away = comp.competitors.find(c => c.homeAway === 'away')
-      if (!home || !away) continue
 
-      const homeId = resolveTeamId(home.team)
-      const awayId = resolveTeamId(away.team)
+      const homeComp = comp.competitors.find(c => c.homeAway === 'home')
+      const awayComp = comp.competitors.find(c => c.homeAway === 'away')
+      if (!homeComp || !awayComp) continue
+
+      const homeId = resolveId(homeComp.team as Record<string, string | undefined>)
+      const awayId = resolveId(awayComp.team as Record<string, string | undefined>)
       if (!homeId || !awayId) continue
 
-      const st = comp.status
-      const status = mapStatus(st.type.state, st.type.completed)
-      const minute = status === 'live'
-        ? parseInt(st.displayClock?.replace(/\D/g, '') || '') || (st.clock ? Math.round(st.clock) : null)
-        : null
+      const st      = comp.status
+      const typeName = st.type.name
+      const period   = st.period ?? 1
+
+      const { status, isHalftime, aet, hasPenalties } = parseEspnStatus(
+        typeName, st.type.state, st.type.completed,
+      )
+
+      const { minute, extra } = isHalftime
+        ? { minute: 45, extra: null }
+        : parseClockDisplay(st.displayClock, period)
+
+      // Penalty-shootout scores live in linescores period type "shootout" or period 5
+      let homePenalties: number | null = null
+      let awayPenalties: number | null = null
+      if (hasPenalties) {
+        const isPen = (l: EspnLinescore) =>
+          l.period?.type === 'shootout' || (l.period?.number ?? 0) >= 5
+        homePenalties = homeComp.linescores?.find(isPen)?.value ?? null
+        awayPenalties = awayComp.linescores?.find(isPen)?.value ?? null
+      }
+
+      const scorers = scorersByEvent.get(ev.id ?? '') ?? []
 
       updates.push({
         homeId,
         awayId,
-        homeScore: home.score !== '' ? Number(home.score) : null,
-        awayScore: away.score !== '' ? Number(away.score) : null,
-        minute,
+        homeScore: homeComp.score !== '' ? Number(homeComp.score) : null,
+        awayScore: awayComp.score !== '' ? Number(awayComp.score) : null,
+        minute:        isHalftime ? 45 : (minute || null),
+        extraMinute:   extra,
+        period,
+        isHalftime,
         status,
+        aet,
+        homePenalties,
+        awayPenalties,
+        scorers,
       })
     }
-    return updates
-  } catch {
-    return null
-  }
+
+    return updates.length > 0 ? updates : null
+  } catch { return null }
 }

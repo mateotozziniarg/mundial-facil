@@ -20,7 +20,7 @@ const COLS = [
   { key: 'goalDiff',     label: 'DG' },
 ] as const
 
-const GRID = '18px 1fr repeat(7, 26px) 32px'
+const GRID = '18px 1fr repeat(7, 23px) 30px'
 
 export function GroupCard({ group, standings, matches }: Props) {
   const [openId, setOpenId] = useState<string | null>(null)
@@ -85,7 +85,7 @@ function Row({ row, position, matches, open, onToggle }: {
         <div className="flex items-center gap-2 min-w-0 pl-0.5">
           <Flag team={row.team} size={18} />
           <span className={`text-[13px] truncate ${arg ? 'arg-text font-semibold' : 'text-ink font-medium'}`}>
-            {row.team.name}{arg && <span className="ml-1" aria-hidden>★</span>}
+            {row.team.shortName ?? row.team.name}{arg && <span className="ml-1" aria-hidden>★</span>}
           </span>
           <span className={`text-[9px] text-ink-3 transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
         </div>

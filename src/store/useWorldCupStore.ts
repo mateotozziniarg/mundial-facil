@@ -135,10 +135,17 @@ export const useWorldCupStore = create<WorldCupState>()(
                 const away = flipped ? u.homeScore : u.awayScore
                 return {
                   ...m,
-                  homeScore: home ?? m.homeScore,
-                  awayScore: away ?? m.awayScore,
-                  minute:    u.minute ?? m.minute,
-                  status:    u.status,
+                  homeScore:      home ?? m.homeScore,
+                  awayScore:      away ?? m.awayScore,
+                  minute:         u.minute ?? m.minute,
+                  extraMinute:    u.extraMinute,
+                  period:         u.period,
+                  isHalftime:     u.isHalftime,
+                  status:         u.status,
+                  aet:            u.aet,
+                  homePenalties:  flipped ? u.awayPenalties : u.homePenalties,
+                  awayPenalties:  flipped ? u.homePenalties : u.awayPenalties,
+                  scorers:        u.scorers.length > 0 ? u.scorers : (m.scorers ?? []),
                 }
               }),
               lastRefresh: Date.now(),
