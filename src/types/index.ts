@@ -3,7 +3,9 @@ export type GroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J' 
 export interface Team {
   id: string
   name: string
-  flag: string
+  shortName?: string   // for tight spaces
+  flag: string         // emoji fallback
+  code: string         // ISO 3166-1 for flag CDN (e.g. 'ar', 'gb-eng')
   group: GroupId
 }
 

@@ -15,9 +15,14 @@ La app queda en `http://localhost:5173` con dark mode por defecto.
 
 | Feature | Descripción |
 |---------|-------------|
-| 🏠 **Inicio** | Partidos en vivo, de hoy y de mañana. Auto-refresh cada 30s si hay partidos en curso. |
-| 📊 **Grupos** | Las 12 tablas con cálculo automático de posiciones y desempates FIFA. Mini-vista "carrera de mejores terceros". |
-| 🔮 **Calculadora de Cruces** | Bracket oficial FIFA: elegís dos equipos y ves en qué instancia se cruzan para todas las combinaciones de posición. |
+| 🏠 **Inicio** | Partidos en vivo / hoy / mañana con countdown "faltan X horas", marcador en vivo animado y auto-refresh. |
+| 📊 **Grupos** | Las 12 tablas con desempates FIFA + "carrera de mejores terceros". |
+| 🗺️ **Llaves** | Bracket proyectado con los equipos que clasificarían HOY (terceros asignados con matching tipo Annex C). |
+| 🔮 **Cruces** | Elegís dos equipos y ves en qué instancia se cruzan para todas las combinaciones de posición. |
+
+**Banderas:** se sirven como SVG desde [flagcdn.com](https://flagcdn.com) (los emojis de bandera no renderizan en Windows/Chrome), con fallback automático al emoji si no hay conexión.
+
+**Argentina** tiene realce visual (glow celeste + ★) en toda la app.
 
 ## API en vivo (opcional)
 

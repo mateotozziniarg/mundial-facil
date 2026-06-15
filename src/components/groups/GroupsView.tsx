@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useWorldCupStore } from '../../store/useWorldCupStore'
 import { GroupCard } from './GroupCard'
 import type { GroupId, StandingRow } from '../../types'
+import { Flag } from '../ui/Flag'
+import { isArgentina } from '../../data/teams'
 
 const ALL_GROUPS: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
 
@@ -12,39 +14,34 @@ export function GroupsView() {
   const thirds = getBestThirds()
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-7">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-            Fase de Grupos
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">48 equipos · 12 grupos · 3 partidos por equipo</p>
+          <h1 className="text-2xl font-bold text-white">Fase de Grupos</h1>
+          <p className="text-sm text-ink-3 mt-1">Clasifican los 2 primeros de cada grupo + los 8 mejores terceros</p>
         </div>
-        <div className="flex gap-1 rounded-lg bg-[#111827] p-1 border border-[#1e2d45]">
-          <TabBtn active={tab === 'groups'} onClick={() => setTab('groups')}>📊 Grupos</TabBtn>
-          <TabBtn active={tab === 'thirds'} onClick={() => setTab('thirds')}>🏅 Mejores 3°</TabBtn>
+        <div className="flex gap-1 rounded-xl bg-[var(--color-surface)] p-1 border hairline">
+          <TabBtn active={tab === 'groups'} onClick={() => setTab('groups')}>Tablas</TabBtn>
+          <TabBtn active={tab === 'thirds'} onClick={() => setTab('thirds')}>Mejores 3°</TabBtn>
         </div>
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-slate-500">
-        <LegendItem color="#10b981" label="Clasificado directo (1° y 2°)" />
-        <LegendItem color="#f59e0b" label="Posible mejor 3°" />
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-ink-3">
+        <Legend color="var(--color-grass)" label="Clasifican directo (1° y 2°)" />
+        <Legend color="var(--color-gold)" label="Mejor tercero (en disputa)" />
+        <Legend color="var(--color-sky)" label="Argentina" sun />
       </div>
 
       {tab === 'groups' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {ALL_GROUPS.map((g) => (
-            <GroupCard
-              key={g}
-              group={g}
-              standings={allStandings[g] ?? []}
-            />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {ALL_GROUPS.map(g => (
+            <GroupCard key={g} group={g} standings={allStandings[g] ?? []} />
           ))}
         </div>
       ) : (
-        <BestThirdsPanel thirds={thirds} />
+        <BestThirds thirds={thirds} />
       )}
     </div>
   )
@@ -52,81 +49,84 @@ export function GroupsView() {
 
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      onClick={onClick}
-      className={[
-        'px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer',
-        active ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-slate-400 hover:text-slate-200',
-      ].join(' ')}
-    >
+    <button onClick={onClick}
+      className={`px-3.5 py-1.5 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${active ? 'bg-[var(--color-raised)] text-white' : 'text-ink-3 hover:text-ink-2'}`}>
       {children}
     </button>
   )
 }
 
-function LegendItem({ color, label }: { color: string; label: string }) {
+function Legend({ color, label, sun }: { color: string; label: string; sun?: boolean }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <div className="w-3 h-3 rounded-sm" style={{ background: color }} />
-      <span>{label}</span>
-    </div>
+    <span className="flex items-center gap-1.5">
+      <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: color }} />
+      {label}{sun && <span style={{ color }}>★</span>}
+    </span>
   )
 }
 
-function BestThirdsPanel({ thirds }: { thirds: (StandingRow & { group: GroupId })[] }) {
+function BestThirds({ thirds }: { thirds: (StandingRow & { group: GroupId })[] }) {
   const qualify = thirds.slice(0, 8)
-  const out     = thirds.slice(8)
-
+  const out = thirds.slice(8)
   return (
-    <div className="space-y-6">
-      <div className="card overflow-hidden">
-        <div className="px-4 py-3 border-b border-[#1e2d45]">
-          <h3 className="text-sm font-semibold text-white">Carrera de Mejores Terceros</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Los 8 mejores terceros clasifican · ordenados por pts, DG, GF</p>
-        </div>
+    <div className="panel overflow-hidden max-w-3xl">
+      <div className="px-5 py-4 border-b hairline">
+        <h3 className="text-base font-bold text-white">Carrera de los Mejores Terceros</h3>
+        <p className="text-xs text-ink-3 mt-1">
+          Los <span className="text-[var(--color-grass)] font-semibold">8 mejores</span> de los 12 terceros clasifican ·
+          orden por Pts, DG, GF
+        </p>
+      </div>
 
-        {/* Qualify */}
-        <div className="divide-y divide-[#1e2d45]/60">
-          {qualify.map((row, i) => (
-            <ThirdRow key={row.team.id} row={row} rank={i + 1} qualifies />
-          ))}
-        </div>
+      <div>
+        {qualify.map((row, i) => <ThirdRow key={row.team.id} row={row} rank={i + 1} inZone />)}
+      </div>
 
-        {/* Separator */}
-        {out.length > 0 && (
-          <div className="px-4 py-2 border-t border-dashed border-red-500/20 text-[10px] text-red-400/60 text-center">
-            — eliminados si el torneo terminara hoy —
+      {out.length > 0 && (
+        <div className="relative my-1">
+          <div className="absolute inset-x-4 top-1/2 border-t border-dashed border-[var(--color-live)]/25" />
+          <div className="relative flex justify-center">
+            <span className="px-3 text-[10px] text-[var(--color-live)]/70 bg-[var(--color-surface)] uppercase tracking-wider">
+              línea de corte
+            </span>
           </div>
-        )}
-
-        {/* Out */}
-        <div className="divide-y divide-[#1e2d45]/40 opacity-50">
-          {out.map((row, i) => (
-            <ThirdRow key={row.team.id} row={row} rank={i + 9} qualifies={false} />
-          ))}
         </div>
+      )}
+
+      <div className="opacity-55">
+        {out.map((row, i) => <ThirdRow key={row.team.id} row={row} rank={i + 9} inZone={false} />)}
       </div>
     </div>
   )
 }
 
-function ThirdRow({ row, rank, qualifies }: { row: StandingRow & { group: GroupId }; rank: number; qualifies: boolean }) {
+function ThirdRow({ row, rank, inZone }: { row: StandingRow & { group: GroupId }; rank: number; inZone: boolean }) {
+  const arg = isArgentina(row.team.id)
   return (
-    <div className={`flex items-center gap-3 px-4 py-2.5 ${qualifies ? 'hover:bg-white/3' : ''}`}>
-      <span className={`text-xs font-bold w-5 text-center ${qualifies ? 'text-green-400' : 'text-slate-600'}`}>
-        {rank}
+    <div className={`flex items-center gap-3 px-5 py-3 border-b hairline last:border-0 ${arg ? 'arg-glow' : ''}`}>
+      <span className={`w-6 text-center text-sm font-bold nums ${inZone ? 'text-[var(--color-grass)]' : 'text-ink-3'}`}>{rank}</span>
+      <span className="text-[10px] font-bold text-ink-3 w-8">G·{row.group}</span>
+      <Flag team={row.team} size={22} />
+      <span className={`flex-1 text-sm ${arg ? 'arg-text font-semibold' : 'text-ink font-medium'}`}>
+        {row.team.name}{arg && ' ★'}
       </span>
-      <span className="text-xs font-bold text-slate-500 w-5">G-{row.group}</span>
-      <span className="text-xl">{row.team.flag}</span>
-      <span className="text-sm text-slate-200 flex-1">{row.team.name}</span>
-      <div className="flex gap-3 text-xs tabular-nums text-slate-400">
-        <span className="w-6 text-center font-bold text-white">{row.points}</span>
-        <span className="w-6 text-center">{row.goalDiff >= 0 ? `+${row.goalDiff}` : row.goalDiff}</span>
-        <span className="w-6 text-center">{row.goalsFor}</span>
+      <div className="flex items-center gap-3 text-[12px] nums text-ink-2">
+        <Stat label="Pts" value={row.points} bold />
+        <Stat label="DG" value={row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff} />
+        <Stat label="GF" value={row.goalsFor} />
       </div>
-      <span className={`text-xs font-bold ${qualifies ? 'text-green-400' : 'text-red-400'}`}>
-        {qualifies ? '✓ CLASIFICA' : '✗'}
+      <span className={`text-[11px] font-bold w-7 text-right ${inZone ? 'text-[var(--color-grass)]' : 'text-[var(--color-live)]/70'}`}>
+        {inZone ? '✓' : '✕'}
       </span>
     </div>
+  )
+}
+
+function Stat({ label, value, bold }: { label: string; value: number | string; bold?: boolean }) {
+  return (
+    <span className="flex flex-col items-center w-8">
+      <span className={bold ? 'text-white font-bold text-[13px]' : ''}>{value}</span>
+      <span className="text-[9px] text-ink-3">{label}</span>
+    </span>
   )
 }

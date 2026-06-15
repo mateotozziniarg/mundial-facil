@@ -27,7 +27,20 @@ export interface LeafSlot {
 
 // Official R32 matchups (FIFA match numbers 73–88)
 // match index in bracket tree = 16..31
-export const R32_MATCHES = [
+export interface R32MatchDef {
+  treeIdx: number
+  matchNum: number
+  date: string
+  label1: string
+  label2: string
+  kind1: SlotKind
+  group1: GroupId
+  kind2: SlotKind
+  group2?: GroupId
+  possibleGroups2?: GroupId[]
+}
+
+export const R32_MATCHES: R32MatchDef[] = [
   // [treeIdx, matchNum, slot1Label, slot1Kind, slot1Group(s), slot2Label, slot2Kind, slot2Group(s)]
   { treeIdx: 16, matchNum: 73, date: '2026-06-28', label1: '2A', label2: '2B',        kind1: 'runner' as SlotKind, group1: 'A' as GroupId,              kind2: 'runner' as SlotKind, group2: 'B' as GroupId },
   { treeIdx: 17, matchNum: 74, date: '2026-06-29', label1: '1E', label2: '3ABCDF',   kind1: 'winner' as SlotKind, group1: 'E' as GroupId,              kind2: 'third'  as SlotKind, possibleGroups2: ['A','B','C','D','F'] as GroupId[] },
@@ -45,7 +58,7 @@ export const R32_MATCHES = [
   { treeIdx: 29, matchNum: 86, date: '2026-07-03', label1: '1J', label2: '2H',        kind1: 'winner' as SlotKind, group1: 'J' as GroupId,              kind2: 'runner' as SlotKind, group2: 'H' as GroupId },
   { treeIdx: 30, matchNum: 87, date: '2026-07-04', label1: '1K', label2: '3DEIJL',   kind1: 'winner' as SlotKind, group1: 'K' as GroupId,              kind2: 'third'  as SlotKind, possibleGroups2: ['D','E','I','J','L'] as GroupId[] },
   { treeIdx: 31, matchNum: 88, date: '2026-07-03', label1: '2D', label2: '2G',        kind1: 'runner' as SlotKind, group1: 'D' as GroupId,              kind2: 'runner' as SlotKind, group2: 'G' as GroupId },
-] as const
+]
 
 // R16 pairings: each R16 match pairs two R32 winners
 // Tree indices 8-15 pair with R32 indices 16-31

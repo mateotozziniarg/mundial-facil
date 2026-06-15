@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { computeStandings, compareBestThirds } from './standings'
 import type { Match, Team } from '../types'
 
-const mkTeam = (id: string): Team => ({ id, name: id, flag: '🏳', group: 'A' })
+const mkTeam = (id: string): Team => ({ id, name: id, flag: '🏳', code: 'xx', group: 'A' })
 
 const mkMatch = (
   id: number,

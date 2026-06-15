@@ -1,94 +1,95 @@
 import type { StandingRow } from '../../types'
+import { Flag } from '../ui/Flag'
+import { isArgentina } from '../../data/teams'
 
 interface Props {
   group: string
   standings: StandingRow[]
 }
 
-const COLS = ['PJ','G','E','P','GF','GC','DG','Pts']
+const COLS = [
+  { key: 'played', label: 'PJ' },
+  { key: 'won',    label: 'G'  },
+  { key: 'drawn',  label: 'E'  },
+  { key: 'lost',   label: 'P'  },
+  { key: 'goalsFor',     label: 'GF' },
+  { key: 'goalsAgainst', label: 'GC' },
+  { key: 'goalDiff',     label: 'DG' },
+] as const
 
 export function GroupCard({ group, standings }: Props) {
+  const anyPlayed = standings.some(r => r.played > 0)
   return (
-    <div className="card overflow-hidden fade-up">
+    <div className="panel overflow-hidden fade-up">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-[#1e2d45] flex items-center gap-2">
-        <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-blue-600/20 text-blue-400 text-sm font-bold border border-blue-500/20">
+      <div className="px-4 py-3 flex items-center gap-2.5 border-b hairline bg-[var(--color-raised)]/40">
+        <span className="grid place-items-center w-7 h-7 rounded-lg bg-[var(--color-grass)]/15 text-[var(--color-grass)] text-[13px] font-bold border border-[var(--color-grass)]/25">
           {group}
         </span>
-        <span className="text-sm font-semibold text-slate-300">Grupo {group}</span>
+        <span className="text-sm font-semibold text-ink">Grupo {group}</span>
+        {!anyPlayed && <span className="ml-auto text-[10px] text-ink-3">sin jugar</span>}
       </div>
 
-      {/* Column headers */}
-      <div className="px-4 pt-2 pb-1">
-        <div className="grid items-center text-[10px] text-slate-600 font-medium" style={{ gridTemplateColumns: '1fr repeat(8, 28px)' }}>
-          <span>Equipo</span>
-          {COLS.map(c => <span key={c} className="text-center">{c}</span>)}
+      {/* Column header */}
+      <div className="px-3 pt-2.5 pb-1.5">
+        <div className="grid items-center gap-1 text-[10px] font-semibold text-ink-3"
+             style={{ gridTemplateColumns: '18px 1fr repeat(7, 26px) 32px' }}>
+          <span />
+          <span className="pl-1">Equipo</span>
+          {COLS.map(c => <span key={c.key} className="text-center">{c.label}</span>)}
+          <span className="text-center text-[var(--color-grass)]">Pts</span>
         </div>
       </div>
 
       {/* Rows */}
-      <div className="px-2 pb-2 space-y-0.5">
+      <div className="px-2 pb-2 space-y-px">
         {standings.map((row, i) => (
-          <StandingRowComp key={row.team.id} row={row} position={i + 1} />
+          <Row key={row.team.id} row={row} position={i + 1} />
         ))}
       </div>
     </div>
   )
 }
 
-function StandingRowComp({ row, position }: { row: StandingRow; position: number }) {
-  const borderColor =
-    position === 1 ? '#10b981' :
-    position === 2 ? '#10b981' :
-    position === 3 ? '#f59e0b' :
-    'transparent'
+function Row({ row, position }: { row: StandingRow; position: number }) {
+  const arg = isArgentina(row.team.id)
+  const accent =
+    position <= 2 ? 'var(--color-grass)' :
+    position === 3 ? 'var(--color-gold)' : 'transparent'
 
-  const bgColor =
-    position <= 2 ? 'rgba(16,185,129,0.04)' :
-    position === 3 ? 'rgba(245,158,11,0.04)' :
-    'transparent'
-
-  const cells = [
-    row.played, row.won, row.drawn, row.lost,
-    row.goalsFor, row.goalsAgainst, row.goalDiff, row.points,
-  ]
+  const vals = [row.played, row.won, row.drawn, row.lost, row.goalsFor, row.goalsAgainst]
 
   return (
     <div
-      className="grid items-center rounded-md px-2 py-1.5 transition-colors hover:bg-white/3 group"
-      style={{
-        gridTemplateColumns: '1fr repeat(8, 28px)',
-        borderLeft: `2px solid ${borderColor}`,
-        background: bgColor,
-      }}
+      className={`relative grid items-center gap-1 rounded-lg pl-2.5 pr-2 py-2 transition-colors ${arg ? 'arg-glow' : 'hover:bg-white/[0.025]'}`}
+      style={{ gridTemplateColumns: '18px 1fr repeat(7, 26px) 32px' }}
     >
-      {/* Team */}
-      <div className="flex items-center gap-2 min-w-0 pr-2">
-        <span className="text-xs text-slate-600 w-4 shrink-0">{position}</span>
-        <span className="text-lg shrink-0">{row.team.flag}</span>
-        <span className="text-xs text-slate-200 font-medium truncate">{row.team.name}</span>
-        {row.qualified === 'direct' && position <= 2 && (
-          <span title="Clasificado" className="text-green-400 text-[10px] shrink-0">✓</span>
-        )}
-        {row.qualified === 'possible-third' && (
-          <span title="Posible mejor 3°" className="text-yellow-400 text-[10px] shrink-0">?</span>
-        )}
+      {/* position accent bar + number */}
+      <div className="flex items-center">
+        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full" style={{ background: accent }} />
+        <span className={`text-[11px] font-semibold nums ${position <= 2 ? 'text-[var(--color-grass)]' : position === 3 ? 'text-[var(--color-gold)]' : 'text-ink-3'}`}>
+          {position}
+        </span>
       </div>
 
-      {/* Stats */}
-      {cells.map((val, i) => (
-        <span
-          key={i}
-          className={[
-            'text-center text-xs tabular-nums',
-            i === 7 ? 'font-bold text-white' : 'text-slate-400',
-            val !== undefined && Number(val) > 0 && i === 6 ? 'text-green-400' : '',
-            val !== undefined && Number(val) < 0 && i === 6 ? 'text-red-400' : '',
-          ].join(' ')}
-        >
-          {val !== undefined ? (Number(val) > 0 && i === 6 ? `+${val}` : val) : ''}
+      {/* team */}
+      <div className="flex items-center gap-2 min-w-0 pl-0.5">
+        <Flag team={row.team} size={18} />
+        <span className={`text-[13px] truncate ${arg ? 'arg-text font-semibold' : 'text-ink font-medium'}`}>
+          {row.team.name}{arg && <span className="ml-1" aria-hidden>★</span>}
         </span>
+      </div>
+
+      {/* stats */}
+      {vals.map((v, idx) => (
+        <span key={idx} className="text-center text-[12px] text-ink-2 nums">{v}</span>
       ))}
+      {/* goal diff */}
+      <span className={`text-center text-[12px] nums font-medium ${row.goalDiff > 0 ? 'text-[var(--color-grass)]' : row.goalDiff < 0 ? 'text-[#ff7b81]' : 'text-ink-3'}`}>
+        {row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}
+      </span>
+      {/* points */}
+      <span className="text-center text-[14px] font-bold text-white nums">{row.points}</span>
     </div>
   )
 }
