@@ -8,7 +8,7 @@ import { isArgentina } from '../../data/teams'
 const ALL_GROUPS: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
 
 export function GroupsView() {
-  const { getAllStandings, getBestThirds } = useWorldCupStore()
+  const { getAllStandings, getBestThirds, matches } = useWorldCupStore()
   const [tab, setTab] = useState<'groups' | 'thirds'>('groups')
   const allStandings = getAllStandings()
   const thirds = getBestThirds()
@@ -37,7 +37,7 @@ export function GroupsView() {
       {tab === 'groups' ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {ALL_GROUPS.map(g => (
-            <GroupCard key={g} group={g} standings={allStandings[g] ?? []} />
+            <GroupCard key={g} group={g} standings={allStandings[g] ?? []} matches={matches.filter(m => m.group === g)} />
           ))}
         </div>
       ) : (

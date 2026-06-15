@@ -5,7 +5,7 @@ import { FIXTURES } from '../data/fixtures'
 import { TEAMS } from '../data/teams'
 import { computeStandings, compareBestThirds } from '../lib/standings'
 import { fetchLiveMatches } from '../lib/api'
-import { isLiveByClock } from '../lib/dateUtils'
+import { effectiveStatus } from '../lib/dateUtils'
 
 type View = 'home' | 'groups' | 'brackets' | 'calculator'
 
@@ -93,13 +93,12 @@ export const useWorldCupStore = create<WorldCupState>()(
 
         for (const m of matches) {
           const bucket = dateArgBucket(m.date)
-          // Treat as live if the API says so OR the clock says it should be
-          const clockLive = m.status !== 'finished' && isLiveByClock(m.date)
-          if (m.status === 'live' || clockLive) {
+          const status = effectiveStatus(m.status, m.date)
+          if (status === 'live') {
             live.push(m)
-          } else if (m.status === 'finished') {
+          } else if (status === 'finished') {
             if (bucket === today) todayM.push(m)
-          } else if (m.status === 'scheduled') {
+          } else { // scheduled
             if (bucket === today) todayM.push(m)
             else if (bucket === tomorrow) tomorrowM.push(m)
           }
@@ -113,7 +112,7 @@ export const useWorldCupStore = create<WorldCupState>()(
 
       hasLiveMatches: () => {
         const { matches } = get()
-        return matches.some(m => m.status === 'live' || (m.status !== 'finished' && isLiveByClock(m.date)))
+        return matches.some(m => effectiveStatus(m.status, m.date) === 'live')
       },
 
       refresh: async () => {

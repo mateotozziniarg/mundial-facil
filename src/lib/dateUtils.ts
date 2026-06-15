@@ -74,6 +74,27 @@ export function isLiveByClock(isoDate: string, now: number = Date.now()): boolea
   return now >= start && now <= start + 120 * 60000
 }
 
+/**
+ * Effective status derived from the clock, so the UI never shows a past match
+ * as "upcoming" (the old "Empezando" bug). Explicit finished/live from the
+ * seed or API always win.
+ */
+export type EffStatus = 'scheduled' | 'live' | 'finished'
+const MATCH_WINDOW_MS = 115 * 60000  // ~90' + halftime + stoppage
+
+export function effectiveStatus(
+  rawStatus: 'scheduled' | 'live' | 'finished',
+  isoDate: string,
+  now: number = Date.now(),
+): EffStatus {
+  if (rawStatus === 'finished') return 'finished'
+  if (rawStatus === 'live') return 'live'
+  const start = new Date(isoDate).getTime()
+  if (now < start) return 'scheduled'
+  if (now <= start + MATCH_WINDOW_MS) return 'live'
+  return 'finished'   // kicked off long ago without live data → treat as done
+}
+
 /** "hace 12 s" / "hace 3 min" */
 export function timeAgo(ts: number, now: number = Date.now()): string {
   const sec = Math.max(0, Math.floor((now - ts) / 1000))
