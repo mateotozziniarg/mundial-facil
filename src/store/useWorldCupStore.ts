@@ -149,7 +149,7 @@ export const useWorldCupStore = create<WorldCupState>()(
       },
     }),
     {
-      name: 'mundial-facil-v2',
+      name: 'mundial-facil-v3',
       partialize: (s) => ({ matches: s.matches }),
     },
   ),
