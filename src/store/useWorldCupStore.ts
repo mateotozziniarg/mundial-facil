@@ -119,21 +119,32 @@ export const useWorldCupStore = create<WorldCupState>()(
         set({ isRefreshing: true })
         try {
           const updates = await fetchLiveMatches()
-          if (updates) {
+          if (updates && updates.length > 0) {
+            // ESPN ids differ from our seed ids, so match by the (unordered) team pair.
+            const byPair = new Map<string, (typeof updates)[number]>()
+            for (const u of updates) {
+              byPair.set([u.homeId, u.awayId].sort().join('|'), u)
+            }
             set(state => ({
               matches: state.matches.map(m => {
-                const u = updates.find(u => u.id === m.id)
+                const u = byPair.get([m.homeTeamId, m.awayTeamId].sort().join('|'))
                 if (!u) return m
+                // ESPN may report the fixture with home/away flipped vs our seed.
+                const flipped = u.homeId !== m.homeTeamId
+                const home = flipped ? u.awayScore : u.homeScore
+                const away = flipped ? u.homeScore : u.awayScore
                 return {
                   ...m,
-                  homeScore: u.homeScore ?? m.homeScore,
-                  awayScore: u.awayScore ?? m.awayScore,
+                  homeScore: home ?? m.homeScore,
+                  awayScore: away ?? m.awayScore,
                   minute:    u.minute ?? m.minute,
-                  status:    u.status ?? m.status,
+                  status:    u.status,
                 }
               }),
               lastRefresh: Date.now(),
             }))
+          } else {
+            set({ lastRefresh: Date.now() })
           }
         } finally {
           set({ isRefreshing: false })

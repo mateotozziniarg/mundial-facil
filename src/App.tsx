@@ -23,7 +23,7 @@ export default function App() {
         {currentView === 'calculator' && <CalculatorView />}
       </main>
       <footer className="border-t hairline py-5 text-center text-[11px] text-ink-3">
-        Mundial Fácil · datos del seed + API opcional · zona horaria Argentina (UTC-3)
+        Mundial Fácil · resultados en vivo vía ESPN · zona horaria Argentina (UTC-3)
       </footer>
     </div>
   )
