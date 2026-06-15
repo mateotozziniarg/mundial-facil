@@ -52,7 +52,7 @@ export function BracketsView() {
           {ORDER.map(round => (
             <div key={round} className="flex flex-col" style={{ width: 230 }}>
               <RoundHeader round={round} count={byRound[round].length} />
-              <div className="flex-1 flex flex-col justify-around gap-2 py-2">
+              <div className="flex-1 flex flex-col justify-around gap-2">
                 {byRound[round].map((m, i) => (
                   <MatchBox key={m.matchNum} m={m} style={{ animationDelay: `${i * 25}ms` }} />
                 ))}
@@ -72,7 +72,7 @@ export function BracketsView() {
 
 function RoundHeader({ round, count }: { round: BracketRound; count: number }) {
   return (
-    <div className="sticky top-16 z-10 bg-[var(--color-base)]/80 backdrop-blur rounded-lg px-3 py-2 border hairline text-center">
+    <div className="shrink-0 bg-[var(--color-raised)]/70 backdrop-blur-sm rounded-lg px-3 py-2.5 border hairline text-center mb-3">
       <div className="text-[13px] font-bold text-white">{SHORT[round]}</div>
       <div className="text-[10px] text-ink-3">{ROUND_LABELS[round]} · {count}</div>
     </div>
