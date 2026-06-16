@@ -58,16 +58,18 @@ function parseClockDisplay(
   period: number,
 ): { minute: number; extra: number | null } {
   if (!displayClock) return { minute: 0, extra: null }
-  const plusMatch = displayClock.match(/^(\d+)\+(\d+)/)
+  const s = displayClock.trim()
+  // "45+2", "45'+2'", "90'+3'" — stoppage time (strip apostrophes first)
+  const plusMatch = s.replace(/'/g, '').match(/^(\d+)\+(\d+)/)
   if (plusMatch) return { minute: parseInt(plusMatch[1]), extra: parseInt(plusMatch[2]) }
-  const colonMatch = displayClock.match(/^(\d+):(\d+)/)
+  const colonMatch = s.match(/^(\d+):(\d+)/)
   if (colonMatch) {
     const mins = parseInt(colonMatch[1])
     const cap = period === 1 ? 45 : period === 2 ? 90 : period === 3 ? 105 : 120
     if (mins > cap) return { minute: cap, extra: mins - cap }
     return { minute: mins, extra: null }
   }
-  const n = parseInt(displayClock)
+  const n = parseInt(s)
   return isNaN(n) ? { minute: 0, extra: null } : { minute: n, extra: null }
 }
 
@@ -143,10 +145,12 @@ function playerFromPlay(play: EspnScoringPlay): string {
 }
 
 function isGoalPlay(p: EspnScoringPlay): boolean {
+  // keyEvents/details items carry an explicit scoringPlay flag — trust it.
   if (p.scoringPlay === true) return true
-  const typeText = (p.type?.text ?? '').toLowerCase()
-  // ESPN type id 57 = Goal; also catch "Own Goal", "Penalty" variants
-  return ['goal', 'own goal', 'penalty'].some(t => typeText.includes(t))
+  if (p.scoringPlay === false) return false
+  // No flag present → fall back to the event type text.
+  const t = (p.type?.text ?? '').toLowerCase().trim()
+  return t.startsWith('goal') || t.includes('own goal')
 }
 
 function parsePlays(plays: EspnScoringPlay[]): GoalEvent[] {
@@ -156,27 +160,24 @@ function parsePlays(plays: EspnScoringPlay[]): GoalEvent[] {
     if (!teamId) continue
     const period = periodNumber(play.period)
     const { minute, extra } = parseClockDisplay(play.clock?.displayValue, period)
+    const typeText = (play.type?.text ?? '').toLowerCase()
     goals.push({
       teamId,
       playerName:  playerFromPlay(play),
       minute,
       extraMinute: extra,
-      isPenalty:   play.penaltyKick ?? false,
-      isOwnGoal:   play.ownGoal ?? false,
+      isPenalty:   play.penaltyKick === true || typeText.includes('penalty'),
+      isOwnGoal:   play.ownGoal === true || typeText.includes('own goal'),
     })
   }
   return goals.sort((a, b) => a.minute - b.minute || (a.extraMinute ?? 0) - (b.extraMinute ?? 0))
 }
 
-/** Try to extract goal events from ANY array ESPN may provide. */
+/** Extract goal events from an ESPN event array (keyEvents/details/scoringPlays). */
 function extractGoals(arr: AnyArr | undefined): GoalEvent[] {
   if (!Array.isArray(arr) || arr.length === 0) return []
-  // If the array is exclusively scoring plays (scoringPlays key), parse all.
-  // If it's a mixed array (details/keyEvents), filter to goals first.
-  const plays = arr.filter(isGoalPlay)
-  // If filtering produced nothing but the array has items, try without filter
-  // (in case the scoringPlays array has no explicit scoringPlay:true flag)
-  return parsePlays(plays.length > 0 ? plays : arr)
+  // ALWAYS filter to actual goals — these arrays are mixed (cards, subs, goals).
+  return parsePlays(arr.filter(isGoalPlay))
 }
 
 function yyyymmdd(d: Date): string {
