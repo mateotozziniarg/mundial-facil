@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="110" fill="#0f1923"/>
+  <circle cx="256" cy="232" r="140" fill="#1a2b38"/>
+  <circle cx="256" cy="232" r="128" fill="none" stroke="#22c55e" stroke-width="8"/>
+  <!-- soccer ball patches -->
+  <polygon points="256,106 288,180 224,180" fill="#22c55e"/>
+  <polygon points="256,358 224,284 288,284" fill="#22c55e"/>
+  <polygon points="148,180 192,180 170,232" fill="#22c55e"/>
+  <polygon points="364,180 320,180 342,232" fill="#22c55e"/>
+  <polygon points="156,284 192,284 170,232" fill="#22c55e"/>
+  <polygon points="356,284 320,284 342,232" fill="#22c55e"/>
+  <!-- center -->
+  <circle cx="256" cy="232" r="26" fill="#22c55e"/>
+  <!-- Mundial Fácil text -->
+  <text x="256" y="420" font-family="Arial,sans-serif" font-size="44" font-weight="700" fill="white" text-anchor="middle">Mundial Fácil</text>
+  <text x="256" y="468" font-family="Arial,sans-serif" font-size="32" font-weight="700" fill="#22c55e" text-anchor="middle" letter-spacing="2">FIFA 2026</text>
+</svg>
