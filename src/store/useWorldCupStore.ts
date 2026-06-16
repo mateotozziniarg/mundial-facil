@@ -146,6 +146,11 @@ export const useWorldCupStore = create<WorldCupState>()(
                   homePenalties:  flipped ? u.awayPenalties : u.homePenalties,
                   awayPenalties:  flipped ? u.homePenalties : u.awayPenalties,
                   scorers:        u.scorers.length > 0 ? u.scorers : (m.scorers ?? []),
+                  cards:          u.cards.length   > 0 ? u.cards   : (m.cards   ?? []),
+                  homePossession: flipped ? u.awayPossession : u.homePossession,
+                  awayPossession: flipped ? u.homePossession : u.awayPossession,
+                  attendance:     u.attendance ?? m.attendance,
+                  referee:        u.referee    ?? m.referee,
                 }
               }),
               lastRefresh: Date.now(),

@@ -1,4 +1,4 @@
-import type { MatchStatus, GoalEvent } from '../types'
+import type { MatchStatus, GoalEvent, CardEvent } from '../types'
 
 const ESPN_BASE    = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard'
 const ESPN_SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary'
@@ -17,6 +17,11 @@ export interface LiveUpdate {
   homePenalties: number | null
   awayPenalties: number | null
   scorers: GoalEvent[]
+  cards: CardEvent[]
+  homePossession: number | null
+  awayPossession: number | null
+  attendance: number | null
+  referee: string | null
 }
 
 const NAME_TO_ID: Record<string, string> = {
@@ -53,13 +58,9 @@ function resolveId(team: Record<string, string | undefined>): string | null {
   return null
 }
 
-function parseClockDisplay(
-  displayClock: string | undefined,
-  period: number,
-): { minute: number; extra: number | null } {
+function parseClockDisplay(displayClock: string | undefined, period: number): { minute: number; extra: number | null } {
   if (!displayClock) return { minute: 0, extra: null }
   const s = displayClock.trim()
-  // "45+2", "45'+2'", "90'+3'" — stoppage time (strip apostrophes first)
   const plusMatch = s.replace(/'/g, '').match(/^(\d+)\+(\d+)/)
   if (plusMatch) return { minute: parseInt(plusMatch[1]), extra: parseInt(plusMatch[2]) }
   const colonMatch = s.match(/^(\d+):(\d+)/)
@@ -86,98 +87,144 @@ function parseEspnStatus(typeName: string, state: string, completed: boolean): {
   }
 }
 
-// — ESPN types —
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyArr = any[]
+
 interface EspnTeam      { displayName?: string; name?: string; location?: string; shortDisplayName?: string }
 interface EspnLinescore { period?: { type?: string; number?: number }; value?: number }
 interface EspnCompetitor {
-  homeAway: 'home' | 'away'
-  score?: string
-  team: EspnTeam
-  linescores?: EspnLinescore[]
+  homeAway: 'home' | 'away'; score?: string; team: EspnTeam; linescores?: EspnLinescore[]
 }
 interface EspnStatus {
   clock?: number; displayClock?: string; period?: number
   type: { name: string; state: string; completed: boolean }
 }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyArr = any[]
 interface EspnCompetition {
-  competitors: EspnCompetitor[]
-  status: EspnStatus
-  // Scorer data sometimes lives in the scoreboard response itself:
-  scoringPlays?: AnyArr
-  keyEvents?: AnyArr
-  details?: AnyArr
+  competitors: EspnCompetitor[]; status: EspnStatus
+  scoringPlays?: AnyArr; keyEvents?: AnyArr; details?: AnyArr
 }
-interface EspnEvent {
-  id?: string
-  competitions?: EspnCompetition[]
-}
-interface EspnScoringPlay {
+interface EspnEvent { id?: string; competitions?: EspnCompetition[] }
+interface EspnKeyEvent {
   scoringPlay?: boolean
-  penaltyKick?: boolean
-  ownGoal?: boolean
+  penaltyKick?: boolean; ownGoal?: boolean
   clock?: { displayValue?: string }
   period?: { number?: number } | number
   team?: { displayName?: string; name?: string }
-  participants?: { athlete?: { displayName?: string } }[]
+  participants?: { athlete?: { displayName?: string }; type?: string }[]
   athletesInvolved?: { displayName?: string }[]
   type?: { id?: string; text?: string }
   text?: string
 }
 
-function periodNumber(p: EspnScoringPlay['period']): number {
+function periodNumber(p: EspnKeyEvent['period']): number {
   if (!p) return 1
   if (typeof p === 'number') return p
   return p.number ?? 1
 }
 
-function playerFromPlay(play: EspnScoringPlay): string {
+function playerFromEvent(e: EspnKeyEvent): string {
+  // participants[0] with type "scorer" or first participant, then athletesInvolved
   const name =
-    play.participants?.[0]?.athlete?.displayName ??
-    play.athletesInvolved?.[0]?.displayName
+    e.participants?.find(p => p.type === 'scorer')?.athlete?.displayName ??
+    e.participants?.[0]?.athlete?.displayName ??
+    e.athletesInvolved?.[0]?.displayName
   if (name) return name
-  if (play.text) {
-    const m = play.text.match(/\(([^)]+)\)/)
+  if (e.text) {
+    const m = e.text.match(/\(([^)]+)\)/)
     if (m) return m[1].trim()
   }
   return '?'
 }
 
-function isGoalPlay(p: EspnScoringPlay): boolean {
-  // keyEvents/details items carry an explicit scoringPlay flag — trust it.
-  if (p.scoringPlay === true) return true
-  if (p.scoringPlay === false) return false
-  // No flag present → fall back to the event type text.
-  const t = (p.type?.text ?? '').toLowerCase().trim()
-  return t.startsWith('goal') || t.includes('own goal')
+function eventTypeText(e: EspnKeyEvent): string {
+  return (e.type?.text ?? '').toLowerCase().trim()
 }
 
-function parsePlays(plays: EspnScoringPlay[]): GoalEvent[] {
+function isGoalEvent(e: EspnKeyEvent): boolean {
+  if (e.scoringPlay === true)  return true
+  if (e.scoringPlay === false) return false
+  const t = eventTypeText(e)
+  return t.startsWith('goal') || t === 'own goal'
+}
+
+function isCardEvent(e: EspnKeyEvent): boolean {
+  const t = eventTypeText(e)
+  return t.includes('yellow card') || t.includes('red card')
+}
+
+function isRedCard(e: EspnKeyEvent): boolean {
+  const t = eventTypeText(e)
+  return t.includes('red card') || t.includes('second yellow')
+}
+
+interface MatchSummaryData {
+  goals: GoalEvent[]
+  cards: CardEvent[]
+  homePossession: number | null
+  awayPossession: number | null
+  attendance: number | null
+  referee: string | null
+  raw: object
+}
+
+function parseKeyEvents(arr: AnyArr, homeId: string): { goals: GoalEvent[]; cards: CardEvent[] } {
   const goals: GoalEvent[] = []
-  for (const play of plays) {
-    const teamId = NAME_TO_ID[normalize(play.team?.displayName ?? play.team?.name ?? '')]
+  const cards: CardEvent[] = []
+
+  for (const e of arr as EspnKeyEvent[]) {
+    const teamId = NAME_TO_ID[normalize(e.team?.displayName ?? e.team?.name ?? '')]
     if (!teamId) continue
-    const period = periodNumber(play.period)
-    const { minute, extra } = parseClockDisplay(play.clock?.displayValue, period)
-    const typeText = (play.type?.text ?? '').toLowerCase()
-    goals.push({
-      teamId,
-      playerName:  playerFromPlay(play),
-      minute,
-      extraMinute: extra,
-      isPenalty:   play.penaltyKick === true || typeText.includes('penalty'),
-      isOwnGoal:   play.ownGoal === true || typeText.includes('own goal'),
-    })
+    const period = periodNumber(e.period)
+    const { minute, extra } = parseClockDisplay(e.clock?.displayValue, period)
+    const playerName = playerFromEvent(e)
+
+    if (isGoalEvent(e)) {
+      const t = eventTypeText(e)
+      goals.push({
+        teamId, playerName, minute, extraMinute: extra,
+        isPenalty:  e.penaltyKick === true || t.includes('penalty'),
+        isOwnGoal:  e.ownGoal    === true || t.includes('own goal'),
+      })
+    } else if (isCardEvent(e)) {
+      cards.push({ teamId, playerName, minute, extraMinute: extra, isRed: isRedCard(e) })
+    }
   }
-  return goals.sort((a, b) => a.minute - b.minute || (a.extraMinute ?? 0) - (b.extraMinute ?? 0))
+
+  const byMin = (a: { minute: number; extraMinute?: number | null }, b: typeof a) =>
+    a.minute - b.minute || (a.extraMinute ?? 0) - (b.extraMinute ?? 0)
+
+  // For the 0-0 fallback: ensure we didn't accidentally treat non-goals as goals
+  // Only include goal events where the scoring team actually matches a known team.
+  // (Already guaranteed by the teamId check above.)
+
+  void homeId  // homeId reserved for future possession pairing
+  return { goals: goals.sort(byMin), cards: cards.sort(byMin) }
 }
 
-/** Extract goal events from an ESPN event array (keyEvents/details/scoringPlays). */
-function extractGoals(arr: AnyArr | undefined): GoalEvent[] {
-  if (!Array.isArray(arr) || arr.length === 0) return []
-  // ALWAYS filter to actual goals — these arrays are mixed (cards, subs, goals).
-  return parsePlays(arr.filter(isGoalPlay))
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractPossession(boxscore: any, homeId: string, awayId: string): { home: number | null; away: number | null } {
+  const teams: AnyArr = boxscore?.teams ?? []
+  const result: Record<string, number> = {}
+  for (const t of teams) {
+    const id = resolveId(t.team ?? {})
+    if (!id) continue
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const poss = t.statistics?.find((s: any) =>
+      s.name === 'possessionPct' || (s.label ?? '').toLowerCase().includes('possession'),
+    )?.displayValue
+    if (poss) result[id] = parseFloat(poss)
+  }
+  return { home: result[homeId] ?? null, away: result[awayId] ?? null }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractGameInfo(gameInfo: any): { attendance: number | null; referee: string | null } {
+  const attendance: number | null = gameInfo?.attendance ?? null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ref = gameInfo?.officials?.find((o: any) =>
+    (o.position?.displayName ?? '').toLowerCase().includes('referee'),
+  )?.displayName ?? null
+  return { attendance, referee: ref }
 }
 
 function yyyymmdd(d: Date): string {
@@ -193,52 +240,59 @@ async function fetchScoreboard(dates: string): Promise<EspnEvent[]> {
   } catch { return [] }
 }
 
-/**
- * Fetch scoring plays from the ESPN summary endpoint.
- * ESPN uses several different response shapes for different leagues/seasons —
- * we try every known path and return the first non-empty result.
- */
-async function fetchScoringPlays(eventId: string): Promise<{ goals: GoalEvent[]; raw: object }> {
-  const empty = { goals: [] as GoalEvent[], raw: {} }
+async function fetchMatchSummary(eventId: string, homeId: string, awayId: string): Promise<MatchSummaryData> {
+  const empty: MatchSummaryData = {
+    goals: [], cards: [], homePossession: null, awayPossession: null,
+    attendance: null, referee: null, raw: {},
+  }
   try {
     const res = await fetch(`${ESPN_SUMMARY}?event=${eventId}`)
     if (!res.ok) return empty
     const json = await res.json()
-
-    // Collect all top-level keys for debug visibility
     const topKeys = Object.keys(json)
 
-    // Try every known path (order: most specific first)
-    const candidates: [string, AnyArr | undefined][] = [
-      ['json.scoringPlays',                   json.scoringPlays],
-      ['json.keyEvents',                       json.keyEvents],
-      ['json.competitions[0].scoringPlays',    json.competitions?.[0]?.scoringPlays],
-      ['json.competitions[0].keyEvents',       json.competitions?.[0]?.keyEvents],
-      ['json.competitions[0].details',         json.competitions?.[0]?.details],
-      ['json.plays',                           json.plays],
-    ]
+    // Find the keyEvents / scoring array — try every known path
+    const candidates: AnyArr[] = [
+      json.keyEvents,
+      json.scoringPlays,
+      json.competitions?.[0]?.keyEvents,
+      json.competitions?.[0]?.scoringPlays,
+      json.competitions?.[0]?.details,
+      json.plays,
+    ].filter(a => Array.isArray(a) && a.length > 0)
 
-    for (const [, arr] of candidates) {
-      const goals = extractGoals(arr)
-      if (goals.length > 0) {
-        return { goals, raw: { topKeys, foundIn: candidates.find(c => c[1] === arr)?.[0], count: goals.length } }
+    let goals: GoalEvent[] = []
+    let cards: CardEvent[] = []
+    let foundIn = 'none'
+
+    for (const arr of candidates) {
+      const result = parseKeyEvents(arr, homeId)
+      // Use this candidate if it found goals OR if no previous candidate found goals
+      // (we still want cards even from a no-goal match)
+      if (result.goals.length > 0 || result.cards.length > 0) {
+        goals = result.goals
+        cards = result.cards
+        foundIn = topKeys.join(',').includes('keyEvents') ? 'keyEvents' : 'other'
+        break
       }
     }
 
-    return { goals: [], raw: { topKeys, foundIn: 'none', allEmpty: true } }
+    const { home: homePossession, away: awayPossession } = extractPossession(json.boxscore, homeId, awayId)
+    const { attendance, referee } = extractGameInfo(json.gameInfo)
+
+    return {
+      goals, cards, homePossession, awayPossession, attendance, referee,
+      raw: { topKeys, foundIn, goalsFound: goals.length, cardsFound: cards.length },
+    }
   } catch (e) {
-    return { goals: [], raw: { error: String(e) } }
+    return { ...empty, raw: { error: String(e) } }
   }
 }
 
-/** Write debug info to localStorage for the ?debug=1 panel. */
 function saveDebug(info: object) {
-  try {
-    localStorage.setItem('__espn_debug', JSON.stringify(info, null, 2))
-  } catch { /* ignore */ }
+  try { localStorage.setItem('__espn_debug', JSON.stringify(info, null, 2)) } catch { /* ignore */ }
 }
 
-/** Fetch live / recent World Cup data from ESPN. */
 export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
   try {
     const now = Date.now()
@@ -252,22 +306,32 @@ export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
     const events    = eventsArr.flat()
     if (events.length === 0) return null
 
-    // Build pending summary fetches for live/finished events
-    const summaryByEventId = new Map<string, Promise<{ goals: GoalEvent[]; raw: object }>>()
+    // Kick off summary fetches for live/finished events
+    const summaryMap = new Map<string, Promise<MatchSummaryData>>()
+
+    // We need homeId/awayId to pass into fetchMatchSummary for possession matching.
+    // Quick-resolve them here.
+    const idCache = new Map<string, { homeId: string; awayId: string }>()
     for (const ev of events) {
       if (!ev.id) continue
-      const state = ev.competitions?.[0]?.status?.type?.state
+      const comp = ev.competitions?.[0]
+      if (!comp) continue
+      const homeComp = comp.competitors.find(c => c.homeAway === 'home')
+      const awayComp = comp.competitors.find(c => c.homeAway === 'away')
+      if (!homeComp || !awayComp) continue
+      const homeId = resolveId(homeComp.team as Record<string, string | undefined>)
+      const awayId = resolveId(awayComp.team as Record<string, string | undefined>)
+      if (!homeId || !awayId) continue
+      idCache.set(ev.id, { homeId, awayId })
+      const state = comp.status?.type?.state
       if (state === 'in' || state === 'post') {
-        summaryByEventId.set(ev.id, fetchScoringPlays(ev.id))
+        summaryMap.set(ev.id, fetchMatchSummary(ev.id, homeId, awayId))
       }
     }
 
-    // Resolve all summaries concurrently
-    const summaryResults = new Map<string, { goals: GoalEvent[]; raw: object }>()
+    const summaryResults = new Map<string, MatchSummaryData>()
     await Promise.all(
-      [...summaryByEventId.entries()].map(async ([id, p]) => {
-        summaryResults.set(id, await p)
-      }),
+      [...summaryMap.entries()].map(async ([id, p]) => { summaryResults.set(id, await p) }),
     )
 
     const updates: LiveUpdate[] = []
@@ -276,14 +340,12 @@ export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
     for (const ev of events) {
       const comp = ev.competitions?.[0]
       if (!comp) continue
+      const ids = idCache.get(ev.id ?? '')
+      if (!ids) continue
+      const { homeId, awayId } = ids
 
-      const homeComp = comp.competitors.find(c => c.homeAway === 'home')
-      const awayComp = comp.competitors.find(c => c.homeAway === 'away')
-      if (!homeComp || !awayComp) continue
-
-      const homeId = resolveId(homeComp.team as Record<string, string | undefined>)
-      const awayId = resolveId(awayComp.team as Record<string, string | undefined>)
-      if (!homeId || !awayId) continue
+      const homeComp = comp.competitors.find(c => c.homeAway === 'home')!
+      const awayComp = comp.competitors.find(c => c.homeAway === 'away')!
 
       const st       = comp.status
       const typeName = st.type.name
@@ -300,24 +362,19 @@ export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
         awayPenalties = awayComp.linescores?.find(isPen)?.value ?? null
       }
 
-      // 1. Try scorers from the scoreboard competition data itself
-      let scorers = extractGoals(comp.scoringPlays ?? comp.keyEvents ?? comp.details)
+      // Try scoreboard competition data first; fall back to summary
+      const sbArr = comp.scoringPlays ?? comp.keyEvents ?? comp.details
+      const sbParsed = sbArr ? parseKeyEvents(sbArr as AnyArr, homeId) : { goals: [], cards: [] }
+      const summary  = summaryResults.get(ev.id ?? '')
 
-      // 2. Fall back to summary endpoint data
-      const summaryData = summaryResults.get(ev.id ?? '')
-      if (scorers.length === 0 && summaryData) {
-        scorers = summaryData.goals
-      }
+      const scorers = sbParsed.goals.length > 0 ? sbParsed.goals : (summary?.goals ?? [])
+      const cards   = sbParsed.cards.length > 0 ? sbParsed.cards : (summary?.cards ?? [])
 
       debugEvents.push({
-        id: ev.id,
-        match: `${homeId} vs ${awayId}`,
-        status: typeName,
-        sbScoringPlays: comp.scoringPlays?.length ?? 'absent',
-        sbKeyEvents:    comp.keyEvents?.length    ?? 'absent',
-        sbDetails:      comp.details?.length      ?? 'absent',
-        summary:        summaryData?.raw ?? 'not fetched',
-        scorersFound:   scorers.length,
+        id: ev.id, match: `${homeId} vs ${awayId}`, status: typeName,
+        goalsFound: scorers.length, cardsFound: cards.length,
+        possession: { home: summary?.homePossession, away: summary?.awayPossession },
+        summary: summary?.raw ?? 'not fetched',
       })
 
       updates.push({
@@ -325,10 +382,13 @@ export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
         homeScore: homeComp.score !== '' ? Number(homeComp.score) : null,
         awayScore: awayComp.score !== '' ? Number(awayComp.score) : null,
         minute: isHalftime ? 45 : (minute || null),
-        extraMinute: extra,
-        period, isHalftime, status, aet,
+        extraMinute: extra, period, isHalftime, status, aet,
         homePenalties, awayPenalties,
-        scorers,
+        scorers, cards,
+        homePossession: summary?.homePossession ?? null,
+        awayPossession: summary?.awayPossession ?? null,
+        attendance:     summary?.attendance     ?? null,
+        referee:        summary?.referee        ?? null,
       })
     }
 
