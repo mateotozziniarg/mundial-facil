@@ -56,6 +56,17 @@ export function HomeView() {
       )}
 
       <TournamentPulse />
+      {new URLSearchParams(window.location.search).has('debug') && <ESPNDebugPanel />}
+    </div>
+  )
+}
+
+function ESPNDebugPanel() {
+  const raw = (() => { try { return localStorage.getItem('__espn_debug') ?? 'sin datos' } catch { return 'error' } })()
+  return (
+    <div className="panel p-4 text-[11px] font-mono">
+      <p className="text-[var(--color-live)] font-bold mb-2">DEBUG ESPN (último fetch)</p>
+      <pre className="text-ink-2 whitespace-pre-wrap break-all max-h-[60vh] overflow-y-auto">{raw}</pre>
     </div>
   )
 }
