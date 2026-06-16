@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Match, GoalEvent, CardEvent } from '../../types'
 import { TEAM_MAP, isArgentina } from '../../data/teams'
+import { getBroadcastersAR } from '../../data/broadcasters'
 import { Flag } from '../ui/Flag'
 import { IconClock, IconPin } from '../ui/icons'
 import { formatArgTime, formatArgDate, countdownTo, elapsedMinutes, effectiveStatus } from '../../lib/dateUtils'
@@ -124,6 +125,10 @@ export function MatchCard({ match, now, style }: Props) {
             )}
           </div>
         </div>
+
+        {/* Broadcast chips */}
+        <BroadcastBadges matchId={match.id} />
+
         {showInfo && (match.referee || match.attendance != null) && (
           <div className="mt-2 pt-2 border-t hairline space-y-1 text-[11px] text-ink-3 fade-up">
             {match.referee && (
@@ -148,6 +153,29 @@ export function MatchCard({ match, now, style }: Props) {
 }
 
 // ─── sub-components ────────────────────────────────────────────────────────
+
+function BroadcastBadges({ matchId }: { matchId: number }) {
+  const casts = getBroadcastersAR(matchId)
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+      {casts.map(b => (
+        <a
+          key={b.id}
+          href={b.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-opacity hover:opacity-80"
+          style={{ color: b.color, background: b.bg, borderColor: `color-mix(in srgb, ${b.color} 28%, transparent)` }}
+          title={`Ver en ${b.name}`}
+        >
+          {b.free && <span className="text-[9px]">📺</span>}
+          {!b.free && <span className="text-[9px]">▶</span>}
+          {b.name}
+        </a>
+      ))}
+    </div>
+  )
+}
 
 function TeamCol({ team }: { team: NonNullable<ReturnType<typeof TEAM_MAP.get>> }) {
   const arg = isArgentina(team.id)
