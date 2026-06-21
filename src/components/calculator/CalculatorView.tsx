@@ -1,11 +1,9 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { TEAMS, isArgentina } from '../../data/teams'
 import { computeCrossings, ROUND_LABELS } from '../../lib/knockout'
-import type { GroupId, Team } from '../../types'
+import type { Team } from '../../types'
 import type { BracketRound } from '../../data/bracket'
 import { Flag } from '../ui/Flag'
-
-const ALL_GROUPS: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
 
 const ROUND_COLORS: Record<BracketRound, { text: string; bg: string; border: string }> = {
   r32:   { text: '#6cb8ff', bg: 'color-mix(in srgb, #6cb8ff 12%, transparent)', border: 'color-mix(in srgb, #6cb8ff 30%, transparent)' },
@@ -127,21 +125,34 @@ function TeamCombobox({ label, accent, selected, onChange, excludeId }: {
   }, [])
 
   const flatFiltered = useMemo(() => {
-    const q = norm(query)
-    return TEAMS.filter(t =>
-      t.id !== excludeId &&
-      (!q || norm(t.name).includes(q) || t.id.toLowerCase().includes(q))
-    )
-  }, [query, excludeId])
+    const q = norm(query.trim())
+    const pool = TEAMS.filter(t => t.id !== excludeId)
 
-  const grouped = useMemo(() => {
-    const map = new Map<GroupId, Team[]>()
-    for (const t of flatFiltered) {
-      if (!map.has(t.group)) map.set(t.group, [])
-      map.get(t.group)!.push(t)
+    if (!q) {
+      // No query → full list, alphabetical by Spanish name
+      return [...pool].sort((a, b) => a.name.localeCompare(b.name, 'es'))
     }
-    return ALL_GROUPS.map(g => ({ g, teams: map.get(g) ?? [] })).filter(x => x.teams.length > 0)
-  }, [flatFiltered])
+
+    // Score each match so prefix hits rank above mid-string hits
+    const scored = pool
+      .map(t => {
+        const name = norm(t.name)
+        const short = t.shortName ? norm(t.shortName) : ''
+        const id = t.id.toLowerCase()
+        let score = -1
+        if (name.startsWith(q)) score = 0
+        else if (short && short.startsWith(q)) score = 1
+        else if (id === q) score = 1
+        else if (name.split(/\s+/).some(w => w.startsWith(q))) score = 2
+        else if (name.includes(q)) score = 3
+        else if (short.includes(q) || id.includes(q)) score = 4
+        return { t, score }
+      })
+      .filter(x => x.score >= 0)
+
+    scored.sort((a, b) => a.score - b.score || a.t.name.localeCompare(b.t.name, 'es'))
+    return scored.map(x => x.t)
+  }, [query, excludeId])
 
   useEffect(() => setActiveIdx(-1), [query])
 
@@ -260,36 +271,30 @@ function TeamCombobox({ label, accent, selected, onChange, excludeId }: {
           >
             {flatFiltered.length === 0 ? (
               <div className="px-4 py-4 text-sm text-ink-3 text-center">Sin resultados para "{query}"</div>
-            ) : grouped.map(({ g, teams }) => (
-              <div key={g}>
-                <div className="px-3 py-1 text-[10px] font-bold text-ink-3 uppercase tracking-widest sticky top-0 z-10"
-                  style={{ background: 'var(--color-base)' }}>
-                  Grupo {g}
-                </div>
-                {teams.map(t => {
-                  const idx = flatFiltered.indexOf(t)
-                  const isActive = idx === activeIdx
-                  const isSel = t.id === selected
-                  return (
-                    <button
-                      key={t.id}
-                      data-idx={idx}
-                      onMouseDown={e => { e.preventDefault(); select(t.id) }}
-                      onMouseEnter={() => setActiveIdx(idx)}
-                      className={[
-                        'w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-sm transition-colors',
-                        isActive ? 'bg-white/[0.07]' : 'hover:bg-white/[0.04]',
-                        isSel ? 'text-[var(--color-grass)]' : 'text-ink',
-                      ].join(' ')}
-                    >
-                      <Flag team={t} size={16} />
-                      <span className="flex-1 truncate">{t.name}</span>
-                      {isSel && <span className="text-[var(--color-grass)] text-xs shrink-0">✓</span>}
-                    </button>
-                  )
-                })}
-              </div>
-            ))}
+            ) : flatFiltered.map((t, idx) => {
+              const isActive = idx === activeIdx
+              const isSel = t.id === selected
+              return (
+                <button
+                  key={t.id}
+                  data-idx={idx}
+                  onMouseDown={e => { e.preventDefault(); select(t.id) }}
+                  onMouseEnter={() => setActiveIdx(idx)}
+                  className={[
+                    'w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-sm transition-colors',
+                    isActive ? 'bg-white/[0.07]' : 'hover:bg-white/[0.04]',
+                    isSel ? 'text-[var(--color-grass)]' : 'text-ink',
+                  ].join(' ')}
+                >
+                  <Flag team={t} size={16} />
+                  <span className="flex-1 truncate">{t.name}</span>
+                  <span className="text-[9px] font-bold text-ink-3 px-1.5 py-0.5 rounded bg-white/[0.05] shrink-0">
+                    {t.group}
+                  </span>
+                  {isSel && <span className="text-[var(--color-grass)] text-xs shrink-0">✓</span>}
+                </button>
+              )
+            })}
           </div>
         )}
       </div>
