@@ -12,12 +12,20 @@ export interface Team {
 export type MatchStatus = 'scheduled' | 'live' | 'finished'
 
 export interface GoalEvent {
-  teamId: string          // team that scored (benefited)
+  teamId: string
   playerName: string
   minute: number
   extraMinute?: number | null
   isPenalty?: boolean
   isOwnGoal?: boolean
+}
+
+export interface CardEvent {
+  teamId: string
+  playerName: string
+  minute: number
+  extraMinute?: number | null
+  isRed: boolean  // false = yellow, true = red or second yellow
 }
 
 export interface Match {
@@ -28,19 +36,24 @@ export interface Match {
   awayScore: number | null
   minute: number | null
   status: MatchStatus
-  date: string        // ISO 8601
+  date: string
   venue: string
   city: string
-  group: GroupId | null  // null for knockout
+  group: GroupId | null
   stage: Stage
   // Live-state fields — populated by ESPN refresh, absent on static fixtures
-  extraMinute?: number | null   // stoppage-time addition (e.g. "45+3'" → extraMinute=3)
-  period?: number | null        // 1=1st half, 2=2nd half, 3=ET1st, 4=ET2nd
+  extraMinute?: number | null
+  period?: number | null
   isHalftime?: boolean
-  aet?: boolean                 // ended after extra time
-  homePenalties?: number | null // penalty-shootout score
+  aet?: boolean
+  homePenalties?: number | null
   awayPenalties?: number | null
   scorers?: GoalEvent[]
+  cards?: CardEvent[]
+  homePossession?: number | null   // 0-100
+  awayPossession?: number | null
+  attendance?: number | null
+  referee?: string | null
 }
 
 export type Stage =
