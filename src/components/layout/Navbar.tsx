@@ -60,7 +60,7 @@ export function Navbar() {
 
         {/* Refresh */}
         <button
-          onClick={refresh}
+          onClick={() => refresh(true)}
           disabled={isRefreshing}
           className="flex items-center gap-1.5 text-[11px] text-ink-3 hover:text-ink-2 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
           title="Actualizar resultados"

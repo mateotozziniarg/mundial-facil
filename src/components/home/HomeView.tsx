@@ -16,10 +16,14 @@ export function HomeView() {
     return () => clearInterval(t)
   }, [])
 
-  // Poll the live API while anything is live
+  // On mount: full refresh to backfill every already-played match-day,
+  // so standings are correct even if nothing is live right now.
+  useEffect(() => { refresh(true) }, [refresh])
+
+  // Poll the live API while anything is live (narrow window for freshness)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
-    if (live_) pollRef.current = setInterval(refresh, API_POLL)
+    if (live_) pollRef.current = setInterval(() => refresh(false), API_POLL)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [live_, refresh])
 

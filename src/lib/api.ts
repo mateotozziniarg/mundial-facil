@@ -1,4 +1,5 @@
 import type { MatchStatus, GoalEvent, CardEvent } from '../types'
+import { FIXTURES } from '../data/fixtures'
 
 const ESPN_BASE    = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard'
 const ESPN_SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary'
@@ -234,6 +235,28 @@ function yyyymmdd(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, '')
 }
 
+/**
+ * All distinct ESPN scoreboard days we need to cover up to `tomorrow`.
+ * Derived from the fixture list so every already-played match-day gets
+ * backfilled (ESPN's window is otherwise just yesterday/today/tomorrow).
+ * Includes the day-before each fixture to absorb ET/UTC date boundaries.
+ */
+function backfillDates(now: number): string[] {
+  const tomorrowMax = now + 864e5
+  const set = new Set<string>()
+  for (const m of FIXTURES) {
+    const t = new Date(m.date).getTime()
+    if (t > tomorrowMax + 864e5) continue   // skip far-future days
+    set.add(yyyymmdd(new Date(t)))
+    set.add(yyyymmdd(new Date(t - 864e5)))   // ET/UTC boundary safety
+  }
+  // Always include the live window explicitly
+  set.add(yyyymmdd(new Date(now - 864e5)))
+  set.add(yyyymmdd(new Date(now)))
+  set.add(yyyymmdd(new Date(tomorrowMax)))
+  return [...set].sort()
+}
+
 async function fetchScoreboard(dates: string): Promise<EspnEvent[]> {
   try {
     const res = await fetch(`${ESPN_BASE}?dates=${dates}`)
@@ -296,17 +319,29 @@ function saveDebug(info: object) {
   try { localStorage.setItem('__espn_debug', JSON.stringify(info, null, 2)) } catch { /* ignore */ }
 }
 
-export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
+/**
+ * @param full  when true, fetch every played match-day (backfill all results);
+ *              when false, only the live window (yesterday/today/tomorrow).
+ */
+export async function fetchLiveMatches(full = false): Promise<LiveUpdate[] | null> {
   try {
     const now = Date.now()
-    const dates = [
-      yyyymmdd(new Date(now - 864e5)),
-      yyyymmdd(new Date(now)),
-      yyyymmdd(new Date(now + 864e5)),
-    ]
+    const dates = full
+      ? backfillDates(now)
+      : [
+          yyyymmdd(new Date(now - 864e5)),
+          yyyymmdd(new Date(now)),
+          yyyymmdd(new Date(now + 864e5)),
+        ]
 
     const eventsArr = await Promise.all(dates.map(fetchScoreboard))
-    const events    = eventsArr.flat()
+    // Dedup events by id (date ranges can overlap on ET/UTC boundaries)
+    const seen = new Set<string>()
+    const events = eventsArr.flat().filter(ev => {
+      if (!ev.id || seen.has(ev.id)) return false
+      seen.add(ev.id)
+      return true
+    })
     if (events.length === 0) return null
 
     // Kick off summary fetches for live/finished events

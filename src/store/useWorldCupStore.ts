@@ -24,7 +24,7 @@ interface WorldCupState {
 
   // Actions
   setView: (v: View) => void
-  refresh: () => Promise<void>
+  refresh: (full?: boolean) => Promise<void>
   updateMatchScore: (id: number, homeScore: number, awayScore: number, status: Match['status']) => void
 }
 
@@ -115,10 +115,10 @@ export const useWorldCupStore = create<WorldCupState>()(
         return matches.some(m => effectiveStatus(m.status, m.date) === 'live')
       },
 
-      refresh: async () => {
+      refresh: async (full = false) => {
         set({ isRefreshing: true })
         try {
-          const updates = await fetchLiveMatches()
+          const updates = await fetchLiveMatches(full)
           if (updates && updates.length > 0) {
             // ESPN ids differ from our seed ids, so match by the (unordered) team pair.
             const byPair = new Map<string, (typeof updates)[number]>()
