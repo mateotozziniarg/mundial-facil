@@ -151,6 +151,13 @@ export const useWorldCupStore = create<WorldCupState>()(
                   awayPossession: flipped ? u.homePossession : u.awayPossession,
                   attendance:     u.attendance ?? m.attendance,
                   referee:        u.referee    ?? m.referee,
+                  // Accumulate max stoppage seen per period across refreshes
+                  p1Stoppage: u.p1Stoppage != null
+                    ? Math.max(u.p1Stoppage, m.p1Stoppage ?? 0)
+                    : (m.p1Stoppage ?? null),
+                  p2Stoppage: u.p2Stoppage != null
+                    ? Math.max(u.p2Stoppage, m.p2Stoppage ?? 0)
+                    : (m.p2Stoppage ?? null),
                 }
               }),
               lastRefresh: Date.now(),

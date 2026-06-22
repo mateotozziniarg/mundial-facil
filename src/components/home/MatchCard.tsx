@@ -73,6 +73,7 @@ export function MatchCard({ match, now, style }: Props) {
                   ({match.homePenalties} - {match.awayPenalties} pen.)
                 </div>
               )}
+              <StoppageRow p1={match.p1Stoppage ?? null} p2={match.p2Stoppage ?? null} period={match.period ?? 1} isHalftime={match.isHalftime ?? false} />
             </div>
           ) : isFinished || isLive ? (
             <div className="text-ink-3 text-sm font-medium">{isLive ? 'en juego' : 'FT'}</div>
@@ -200,6 +201,32 @@ function Score({ value, live }: { value: number; live: boolean }) {
 
 function fmtMin(minute: number, extra: number | null | undefined): string {
   return extra != null ? `${minute}+${extra}'` : `${minute}'`
+}
+
+function StoppageRow({ p1, p2, period, isHalftime }: {
+  p1: number | null; p2: number | null; period: number; isHalftime: boolean
+}) {
+  // Show P1 stoppage during halftime or when P2+ has started; show P2 when match is done
+  const showP1 = p1 != null && (isHalftime || period >= 2)
+  const showP2 = p2 != null && period >= 2 && !isHalftime
+  if (!showP1 && !showP2) return null
+  return (
+    <div className="flex items-center justify-center gap-2.5 mt-1.5 nums">
+      {showP1 && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-ink-3">
+          <span className="text-[9px] font-semibold text-ink-3 opacity-60">1T</span>
+          <span className="text-ink-2">+{p1}'</span>
+        </span>
+      )}
+      {showP1 && showP2 && <span className="text-ink-3 text-[9px]">·</span>}
+      {showP2 && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-ink-3">
+          <span className="text-[9px] font-semibold text-ink-3 opacity-60">2T</span>
+          <span className="text-ink-2">+{p2}'</span>
+        </span>
+      )}
+    </div>
+  )
 }
 
 function StatusBadge({ status, minute, extraMinute, period, isHalftime, aet, homePenalties, awayPenalties, date }: {

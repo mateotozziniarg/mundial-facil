@@ -54,6 +54,9 @@ export interface Match {
   awayPossession?: number | null
   attendance?: number | null
   referee?: string | null
+  // Maximum stoppage minutes seen per period (accumulated across refreshes)
+  p1Stoppage?: number | null
+  p2Stoppage?: number | null
 }
 
 export type Stage =

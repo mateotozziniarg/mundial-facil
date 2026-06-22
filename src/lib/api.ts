@@ -22,6 +22,9 @@ export interface LiveUpdate {
   awayPossession: number | null
   attendance: number | null
   referee: string | null
+  // Stoppage minutes for the current period at time of fetch (null if not in stoppage)
+  p1Stoppage: number | null
+  p2Stoppage: number | null
 }
 
 const NAME_TO_ID: Record<string, string> = {
@@ -377,6 +380,11 @@ export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
         summary: summary?.raw ?? 'not fetched',
       })
 
+      // Capture stoppage per period: if we're currently in stoppage of P1 or P2,
+      // record the extra minutes so the store can accumulate the max seen.
+      const p1Stoppage = (!isHalftime && period === 1 && extra != null) ? extra : null
+      const p2Stoppage = (!isHalftime && period === 2 && extra != null) ? extra : null
+
       updates.push({
         homeId, awayId,
         homeScore: homeComp.score !== '' ? Number(homeComp.score) : null,
@@ -389,6 +397,7 @@ export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
         awayPossession: summary?.awayPossession ?? null,
         attendance:     summary?.attendance     ?? null,
         referee:        summary?.referee        ?? null,
+        p1Stoppage, p2Stoppage,
       })
     }
 
