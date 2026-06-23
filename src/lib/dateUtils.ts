@@ -105,6 +105,10 @@ export function isLiveByClock(isoDate: string, now: number = Date.now()): boolea
  */
 export type EffStatus = 'scheduled' | 'live' | 'finished'
 const MATCH_WINDOW_MS = 115 * 60000  // ~90' + halftime + stoppage
+// No real match (incl. extra time + penalties) lasts this long in wall-clock.
+// If we still think it's "live" this far past kickoff, the data went stale
+// (e.g. ESPN dropped the suspended match from its feed) → stop showing it live.
+const MAX_LIVE_MS = 190 * 60000
 
 export function effectiveStatus(
   rawStatus: 'scheduled' | 'live' | 'finished',
@@ -112,8 +116,11 @@ export function effectiveStatus(
   now: number = Date.now(),
 ): EffStatus {
   if (rawStatus === 'finished') return 'finished'
-  if (rawStatus === 'live') return 'live'
   const start = new Date(isoDate).getTime()
+  if (rawStatus === 'live') {
+    // Safety net for stale "live" state when the API stops updating a match.
+    return now > start + MAX_LIVE_MS ? 'finished' : 'live'
+  }
   if (now < start) return 'scheduled'
   if (now <= start + MATCH_WINDOW_MS) return 'live'
   return 'finished'   // kicked off long ago without live data → treat as done

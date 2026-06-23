@@ -94,9 +94,14 @@ export const useWorldCupStore = create<WorldCupState>()(
         for (const m of matches) {
           const bucket = dateArgBucket(m.date)
           const status = effectiveStatus(m.status, m.date)
-          if (status === 'live') {
+          // A suspended/postponed/cancelled match is not actively playing —
+          // keep it out of "En curso" so it doesn't look stuck, show it under
+          // its day instead.
+          const interrupted = m.interruption === 'suspended' || m.interruption === 'postponed'
+            || m.interruption === 'cancelled' || m.interruption === 'abandoned'
+          if (status === 'live' && !interrupted) {
             live.push(m)
-          } else if (status === 'finished') {
+          } else if (status === 'finished' || interrupted) {
             if (bucket === today) todayM.push(m)
           } else { // scheduled
             if (bucket === today) todayM.push(m)
@@ -112,7 +117,9 @@ export const useWorldCupStore = create<WorldCupState>()(
 
       hasLiveMatches: () => {
         const { matches } = get()
-        return matches.some(m => effectiveStatus(m.status, m.date) === 'live')
+        return matches.some(m =>
+          !m.interruption && effectiveStatus(m.status, m.date) === 'live',
+        )
       },
 
       refresh: async (full = false) => {
@@ -158,6 +165,7 @@ export const useWorldCupStore = create<WorldCupState>()(
                   p2Stoppage: u.p2Stoppage != null
                     ? Math.max(u.p2Stoppage, m.p2Stoppage ?? 0)
                     : (m.p2Stoppage ?? null),
+                  interruption: u.interruption,
                 }
               }),
               lastRefresh: Date.now(),

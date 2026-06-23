@@ -11,6 +11,9 @@ export interface Team {
 
 export type MatchStatus = 'scheduled' | 'live' | 'finished'
 
+// A match that isn't following the normal scheduled→live→finished flow.
+export type Interruption = 'suspended' | 'postponed' | 'cancelled' | 'abandoned' | 'delayed'
+
 export interface GoalEvent {
   teamId: string
   playerName: string
@@ -57,6 +60,8 @@ export interface Match {
   // Maximum stoppage minutes seen per period (accumulated across refreshes)
   p1Stoppage?: number | null
   p2Stoppage?: number | null
+  // Set when ESPN reports the match suspended/postponed/cancelled/etc.
+  interruption?: Interruption | null
 }
 
 export type Stage =
