@@ -241,8 +241,9 @@ function TeamCombobox({ label, accent, selected, onChange, excludeId }: {
           <input
             ref={inputRef}
             className="flex-1 bg-transparent text-sm text-ink placeholder:text-ink-3 outline-none min-w-0 cursor-text"
-            placeholder={selectedTeam ? selectedTeam.name : 'Buscar equipo…'}
-            value={isOpen ? query : ''}
+            placeholder={isOpen || !selectedTeam ? 'Buscar equipo…' : ''}
+            value={isOpen ? query : (selectedTeam ? selectedTeam.name : '')}
+            readOnly={!isOpen}
             onChange={e => { setQuery(e.target.value); setActiveIdx(-1) }}
             onFocus={() => setOpen(true)}
             onKeyDown={handleKeyDown}
