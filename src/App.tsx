@@ -4,13 +4,14 @@ import { HomeView } from './components/home/HomeView'
 import { GroupsView } from './components/groups/GroupsView'
 import { BracketsView } from './components/brackets/BracketsView'
 import { CalculatorView } from './components/calculator/CalculatorView'
+import { CalendarView } from './components/calendar/CalendarView'
 import { useWorldCupStore } from './store/useWorldCupStore'
 
 export default function App() {
   const { currentView, refresh } = useWorldCupStore()
 
   useEffect(() => {
-    refresh()
+    refresh(true)
   }, [])
 
   return (
@@ -18,6 +19,7 @@ export default function App() {
       <Navbar />
       <main className="flex-1 pb-12">
         {currentView === 'home'       && <HomeView />}
+        {currentView === 'calendar'   && <CalendarView />}
         {currentView === 'groups'     && <GroupsView />}
         {currentView === 'brackets'   && <BracketsView />}
         {currentView === 'calculator' && <CalculatorView />}

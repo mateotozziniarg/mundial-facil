@@ -19,8 +19,9 @@ export function MatchCard({ match, now, style }: Props) {
   const [showInfo, setShowInfo] = useState(false)
   if (!home || !away) return null
 
+  const interruption = match.interruption ?? null
   const status    = effectiveStatus(match.status, match.date, now)
-  const isLive    = status === 'live'
+  const isLive    = status === 'live' && !interruption
   const isFinished = status === 'finished'
   const hasScore  = match.homeScore !== null && match.awayScore !== null
   const hasArg    = isArgentina(home.id) || isArgentina(away.id)
@@ -34,6 +35,9 @@ export function MatchCard({ match, now, style }: Props) {
   const hasEvents = (isLive || isFinished) && (scorers.length > 0 || cards.length > 0)
   const hasPoss   = match.homePossession != null && match.awayPossession != null
   const hasInfo   = match.attendance != null || match.referee != null
+  // Suspended/abandoned matches keep their frozen score visible
+  const frozen    = interruption === 'suspended' || interruption === 'delayed' || interruption === 'abandoned'
+  const showScore = (isFinished || isLive || frozen) && hasScore
 
   return (
     <div
@@ -53,7 +57,7 @@ export function MatchCard({ match, now, style }: Props) {
           aet={match.aet ?? false}
           homePenalties={match.homePenalties ?? null}
           awayPenalties={match.awayPenalties ?? null}
-          date={match.date}
+          date={match.date} interruption={interruption}
         />
       </div>
 
@@ -61,7 +65,7 @@ export function MatchCard({ match, now, style }: Props) {
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
         <TeamCol team={home} />
         <div className="px-1 min-w-[72px] text-center">
-          {(isFinished || isLive) && hasScore ? (
+          {showScore ? (
             <div className="flex flex-col items-center">
               <div className="flex items-center justify-center gap-1.5">
                 <Score value={match.homeScore!} live={isLive} />
@@ -73,6 +77,7 @@ export function MatchCard({ match, now, style }: Props) {
                   ({match.homePenalties} - {match.awayPenalties} pen.)
                 </div>
               )}
+              <StoppageRow p1={match.p1Stoppage ?? null} p2={match.p2Stoppage ?? null} period={match.period ?? 1} isHalftime={match.isHalftime ?? false} />
             </div>
           ) : isFinished || isLive ? (
             <div className="text-ink-3 text-sm font-medium">{isLive ? 'en juego' : 'FT'}</div>
@@ -202,11 +207,56 @@ function fmtMin(minute: number, extra: number | null | undefined): string {
   return extra != null ? `${minute}+${extra}'` : `${minute}'`
 }
 
-function StatusBadge({ status, minute, extraMinute, period, isHalftime, aet, homePenalties, awayPenalties, date }: {
+function StoppageRow({ p1, p2, period, isHalftime }: {
+  p1: number | null; p2: number | null; period: number; isHalftime: boolean
+}) {
+  // Show P1 stoppage during halftime or when P2+ has started; show P2 when match is done
+  const showP1 = p1 != null && (isHalftime || period >= 2)
+  const showP2 = p2 != null && period >= 2 && !isHalftime
+  if (!showP1 && !showP2) return null
+  return (
+    <div className="flex items-center justify-center gap-2.5 mt-1.5 nums">
+      {showP1 && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-ink-3">
+          <span className="text-[9px] font-semibold text-ink-3 opacity-60">1T</span>
+          <span className="text-ink-2">+{p1}'</span>
+        </span>
+      )}
+      {showP1 && showP2 && <span className="text-ink-3 text-[9px]">·</span>}
+      {showP2 && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-ink-3">
+          <span className="text-[9px] font-semibold text-ink-3 opacity-60">2T</span>
+          <span className="text-ink-2">+{p2}'</span>
+        </span>
+      )}
+    </div>
+  )
+}
+
+const INTERRUPTION_LABELS: Record<NonNullable<Match['interruption']>, string> = {
+  suspended: 'Suspendido',
+  postponed: 'Postergado',
+  cancelled: 'Cancelado',
+  abandoned: 'Abandonado',
+  delayed:   'Demorado',
+}
+
+function StatusBadge({ status, minute, extraMinute, period, isHalftime, aet, homePenalties, awayPenalties, date, interruption }: {
   status: 'scheduled' | 'live' | 'finished'; minute: number | null; extraMinute: number | null
   period: number; isHalftime: boolean; aet: boolean
   homePenalties: number | null; awayPenalties: number | null; date: string
+  interruption: Match['interruption']
 }) {
+  if (interruption) {
+    // Gold for things that resume/replay, red for terminal states
+    const terminal = interruption === 'cancelled' || interruption === 'abandoned'
+    const color = terminal ? 'var(--color-live)' : 'var(--color-gold)'
+    return (
+      <span className="chip" style={{ color, background: `color-mix(in srgb, ${color} 15%, transparent)` }}>
+        ⏸ {INTERRUPTION_LABELS[interruption].toUpperCase()}
+      </span>
+    )
+  }
   if (status === 'live') {
     if (isHalftime) {
       return (

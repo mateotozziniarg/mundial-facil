@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useWorldCupStore } from '../../store/useWorldCupStore'
-import { IconHome, IconGroups, IconBracket, IconCalc, IconRefresh, IconTrophy } from '../ui/icons'
+import { IconHome, IconGroups, IconBracket, IconCalc, IconCalendar, IconRefresh, IconTrophy } from '../ui/icons'
 import { timeAgo } from '../../lib/dateUtils'
 
 const VIEWS = [
   { id: 'home' as const,       label: 'Inicio',      Icon: IconHome },
+  { id: 'calendar' as const,   label: 'Calendario',  Icon: IconCalendar },
   { id: 'groups' as const,     label: 'Grupos',      Icon: IconGroups },
   { id: 'brackets' as const,   label: 'Llaves',      Icon: IconBracket },
   { id: 'calculator' as const, label: 'Cruces',      Icon: IconCalc },
@@ -60,7 +61,7 @@ export function Navbar() {
 
         {/* Refresh */}
         <button
-          onClick={refresh}
+          onClick={() => refresh(true)}
           disabled={isRefreshing}
           className="flex items-center gap-1.5 text-[11px] text-ink-3 hover:text-ink-2 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
           title="Actualizar resultados"

@@ -1,4 +1,5 @@
-import type { MatchStatus, GoalEvent, CardEvent } from '../types'
+import type { MatchStatus, GoalEvent, CardEvent, Interruption } from '../types'
+import { FIXTURES } from '../data/fixtures'
 
 const ESPN_BASE    = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard'
 const ESPN_SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary'
@@ -22,6 +23,10 @@ export interface LiveUpdate {
   awayPossession: number | null
   attendance: number | null
   referee: string | null
+  // Stoppage minutes for the current period at time of fetch (null if not in stoppage)
+  p1Stoppage: number | null
+  p2Stoppage: number | null
+  interruption: Interruption | null
 }
 
 const NAME_TO_ID: Record<string, string> = {
@@ -74,17 +79,37 @@ function parseClockDisplay(displayClock: string | undefined, period: number): { 
   return isNaN(n) ? { minute: 0, extra: null } : { minute: n, extra: null }
 }
 
-function parseEspnStatus(typeName: string, state: string, completed: boolean): {
+function detectInterruption(typeName: string, detail: string): Interruption | null {
+  const s = `${typeName} ${detail}`.toUpperCase()
+  if (s.includes('SUSPEND'))                 return 'suspended'
+  if (s.includes('POSTPON'))                 return 'postponed'
+  if (s.includes('CANCEL'))                  return 'cancelled'
+  if (s.includes('ABANDON') || s.includes('FORFEIT')) return 'abandoned'
+  if (s.includes('DELAY') || s.includes('RAIN'))      return 'delayed'
+  return null
+}
+
+function parseEspnStatus(typeName: string, state: string, completed: boolean, detail = ''): {
   status: MatchStatus; isHalftime: boolean; aet: boolean; hasPenalties: boolean
+  interruption: Interruption | null
 } {
+  const interruption = detectInterruption(typeName, detail)
   const ht  = typeName.includes('HALFTIME')
   const fin = completed || state === 'post'
   const pen = fin && typeName.includes('PEN')
   const aet = fin && (pen || typeName.includes('AET') || typeName.includes('OT_') || typeName.includes('OVERTIME'))
-  return {
-    status: fin ? 'finished' : (ht || state === 'in') ? 'live' : 'scheduled',
-    isHalftime: ht, aet, hasPenalties: pen,
-  }
+
+  // Cancelled / abandoned won't resume → treat as finished (score frozen).
+  // Postponed will be replayed → treat as scheduled.
+  // Suspended / delayed: keep last known score but flag it so the UI stops
+  //   showing a ticking live minute.
+  let status: MatchStatus
+  if (interruption === 'cancelled' || interruption === 'abandoned') status = 'finished'
+  else if (interruption === 'postponed')                           status = 'scheduled'
+  else if (interruption === 'suspended' || interruption === 'delayed') status = 'live'
+  else status = fin ? 'finished' : (ht || state === 'in') ? 'live' : 'scheduled'
+
+  return { status, isHalftime: ht && !interruption, aet, hasPenalties: pen, interruption }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,7 +122,7 @@ interface EspnCompetitor {
 }
 interface EspnStatus {
   clock?: number; displayClock?: string; period?: number
-  type: { name: string; state: string; completed: boolean }
+  type: { name: string; state: string; completed: boolean; detail?: string; description?: string }
 }
 interface EspnCompetition {
   competitors: EspnCompetitor[]; status: EspnStatus
@@ -231,6 +256,28 @@ function yyyymmdd(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, '')
 }
 
+/**
+ * All distinct ESPN scoreboard days we need to cover up to `tomorrow`.
+ * Derived from the fixture list so every already-played match-day gets
+ * backfilled (ESPN's window is otherwise just yesterday/today/tomorrow).
+ * Includes the day-before each fixture to absorb ET/UTC date boundaries.
+ */
+function backfillDates(now: number): string[] {
+  const tomorrowMax = now + 864e5
+  const set = new Set<string>()
+  for (const m of FIXTURES) {
+    const t = new Date(m.date).getTime()
+    if (t > tomorrowMax + 864e5) continue   // skip far-future days
+    set.add(yyyymmdd(new Date(t)))
+    set.add(yyyymmdd(new Date(t - 864e5)))   // ET/UTC boundary safety
+  }
+  // Always include the live window explicitly
+  set.add(yyyymmdd(new Date(now - 864e5)))
+  set.add(yyyymmdd(new Date(now)))
+  set.add(yyyymmdd(new Date(tomorrowMax)))
+  return [...set].sort()
+}
+
 async function fetchScoreboard(dates: string): Promise<EspnEvent[]> {
   try {
     const res = await fetch(`${ESPN_BASE}?dates=${dates}`)
@@ -293,17 +340,29 @@ function saveDebug(info: object) {
   try { localStorage.setItem('__espn_debug', JSON.stringify(info, null, 2)) } catch { /* ignore */ }
 }
 
-export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
+/**
+ * @param full  when true, fetch every played match-day (backfill all results);
+ *              when false, only the live window (yesterday/today/tomorrow).
+ */
+export async function fetchLiveMatches(full = false): Promise<LiveUpdate[] | null> {
   try {
     const now = Date.now()
-    const dates = [
-      yyyymmdd(new Date(now - 864e5)),
-      yyyymmdd(new Date(now)),
-      yyyymmdd(new Date(now + 864e5)),
-    ]
+    const dates = full
+      ? backfillDates(now)
+      : [
+          yyyymmdd(new Date(now - 864e5)),
+          yyyymmdd(new Date(now)),
+          yyyymmdd(new Date(now + 864e5)),
+        ]
 
     const eventsArr = await Promise.all(dates.map(fetchScoreboard))
-    const events    = eventsArr.flat()
+    // Dedup events by id (date ranges can overlap on ET/UTC boundaries)
+    const seen = new Set<string>()
+    const events = eventsArr.flat().filter(ev => {
+      if (!ev.id || seen.has(ev.id)) return false
+      seen.add(ev.id)
+      return true
+    })
     if (events.length === 0) return null
 
     // Kick off summary fetches for live/finished events
@@ -351,7 +410,9 @@ export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
       const typeName = st.type.name
       const period   = st.period ?? 1
 
-      const { status, isHalftime, aet, hasPenalties } = parseEspnStatus(typeName, st.type.state, st.type.completed)
+      const detail = st.type.detail ?? st.type.description ?? ''
+      const { status, isHalftime, aet, hasPenalties, interruption } =
+        parseEspnStatus(typeName, st.type.state, st.type.completed, detail)
       const { minute, extra } = isHalftime ? { minute: 45, extra: null } : parseClockDisplay(st.displayClock, period)
 
       let homePenalties: number | null = null
@@ -372,10 +433,16 @@ export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
 
       debugEvents.push({
         id: ev.id, match: `${homeId} vs ${awayId}`, status: typeName,
+        detail, interruption,
         goalsFound: scorers.length, cardsFound: cards.length,
         possession: { home: summary?.homePossession, away: summary?.awayPossession },
         summary: summary?.raw ?? 'not fetched',
       })
+
+      // Capture stoppage per period: if we're currently in stoppage of P1 or P2,
+      // record the extra minutes so the store can accumulate the max seen.
+      const p1Stoppage = (!isHalftime && period === 1 && extra != null) ? extra : null
+      const p2Stoppage = (!isHalftime && period === 2 && extra != null) ? extra : null
 
       updates.push({
         homeId, awayId,
@@ -389,6 +456,8 @@ export async function fetchLiveMatches(): Promise<LiveUpdate[] | null> {
         awayPossession: summary?.awayPossession ?? null,
         attendance:     summary?.attendance     ?? null,
         referee:        summary?.referee        ?? null,
+        p1Stoppage, p2Stoppage,
+        interruption,
       })
     }
 

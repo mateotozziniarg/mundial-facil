@@ -7,7 +7,7 @@ import { computeStandings, compareBestThirds } from '../lib/standings'
 import { fetchLiveMatches } from '../lib/api'
 import { effectiveStatus } from '../lib/dateUtils'
 
-type View = 'home' | 'groups' | 'brackets' | 'calculator'
+type View = 'home' | 'groups' | 'brackets' | 'calculator' | 'calendar'
 
 interface WorldCupState {
   matches: Match[]
@@ -24,7 +24,7 @@ interface WorldCupState {
 
   // Actions
   setView: (v: View) => void
-  refresh: () => Promise<void>
+  refresh: (full?: boolean) => Promise<void>
   updateMatchScore: (id: number, homeScore: number, awayScore: number, status: Match['status']) => void
 }
 
@@ -94,9 +94,14 @@ export const useWorldCupStore = create<WorldCupState>()(
         for (const m of matches) {
           const bucket = dateArgBucket(m.date)
           const status = effectiveStatus(m.status, m.date)
-          if (status === 'live') {
+          // A suspended/postponed/cancelled match is not actively playing —
+          // keep it out of "En curso" so it doesn't look stuck, show it under
+          // its day instead.
+          const interrupted = m.interruption === 'suspended' || m.interruption === 'postponed'
+            || m.interruption === 'cancelled' || m.interruption === 'abandoned'
+          if (status === 'live' && !interrupted) {
             live.push(m)
-          } else if (status === 'finished') {
+          } else if (status === 'finished' || interrupted) {
             if (bucket === today) todayM.push(m)
           } else { // scheduled
             if (bucket === today) todayM.push(m)
@@ -112,13 +117,15 @@ export const useWorldCupStore = create<WorldCupState>()(
 
       hasLiveMatches: () => {
         const { matches } = get()
-        return matches.some(m => effectiveStatus(m.status, m.date) === 'live')
+        return matches.some(m =>
+          !m.interruption && effectiveStatus(m.status, m.date) === 'live',
+        )
       },
 
-      refresh: async () => {
+      refresh: async (full = false) => {
         set({ isRefreshing: true })
         try {
-          const updates = await fetchLiveMatches()
+          const updates = await fetchLiveMatches(full)
           if (updates && updates.length > 0) {
             // ESPN ids differ from our seed ids, so match by the (unordered) team pair.
             const byPair = new Map<string, (typeof updates)[number]>()
@@ -151,6 +158,14 @@ export const useWorldCupStore = create<WorldCupState>()(
                   awayPossession: flipped ? u.homePossession : u.awayPossession,
                   attendance:     u.attendance ?? m.attendance,
                   referee:        u.referee    ?? m.referee,
+                  // Accumulate max stoppage seen per period across refreshes
+                  p1Stoppage: u.p1Stoppage != null
+                    ? Math.max(u.p1Stoppage, m.p1Stoppage ?? 0)
+                    : (m.p1Stoppage ?? null),
+                  p2Stoppage: u.p2Stoppage != null
+                    ? Math.max(u.p2Stoppage, m.p2Stoppage ?? 0)
+                    : (m.p2Stoppage ?? null),
+                  interruption: u.interruption,
                 }
               }),
               lastRefresh: Date.now(),

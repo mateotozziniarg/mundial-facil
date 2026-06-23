@@ -34,6 +34,30 @@ export function formatArgDateTime(isoDate: string): string {
   }).format(new Date(isoDate))
 }
 
+/** Stable 'YYYY-MM-DD' key for the Argentina calendar day of an instant. */
+export function argDayKey(isoDate: string | number | Date): string {
+  // en-CA yields ISO-style YYYY-MM-DD
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(isoDate))
+}
+
+/** Today's Argentina day key. */
+export function argTodayKey(now: number = Date.now()): string {
+  return argDayKey(now)
+}
+
+/** Pretty long label for a day key, e.g. "Martes 17 de junio". */
+export function formatDayKeyLong(dayKey: string): string {
+  const [y, m, d] = dayKey.split('-').map(Number)
+  // noon UTC keeps the calendar date stable across TZ
+  const date = new Date(Date.UTC(y, m - 1, d, 12))
+  const s = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long',
+  }).format(date)
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
 export function isToday(isoDate: string): boolean {
   const d = new Intl.DateTimeFormat('es-AR', { timeZone: TZ, dateStyle: 'short' }).format(new Date(isoDate))
   const t = new Intl.DateTimeFormat('es-AR', { timeZone: TZ, dateStyle: 'short' }).format(new Date())
@@ -81,6 +105,10 @@ export function isLiveByClock(isoDate: string, now: number = Date.now()): boolea
  */
 export type EffStatus = 'scheduled' | 'live' | 'finished'
 const MATCH_WINDOW_MS = 115 * 60000  // ~90' + halftime + stoppage
+// No real match (incl. extra time + penalties) lasts this long in wall-clock.
+// If we still think it's "live" this far past kickoff, the data went stale
+// (e.g. ESPN dropped the suspended match from its feed) → stop showing it live.
+const MAX_LIVE_MS = 190 * 60000
 
 export function effectiveStatus(
   rawStatus: 'scheduled' | 'live' | 'finished',
@@ -88,8 +116,11 @@ export function effectiveStatus(
   now: number = Date.now(),
 ): EffStatus {
   if (rawStatus === 'finished') return 'finished'
-  if (rawStatus === 'live') return 'live'
   const start = new Date(isoDate).getTime()
+  if (rawStatus === 'live') {
+    // Safety net for stale "live" state when the API stops updating a match.
+    return now > start + MAX_LIVE_MS ? 'finished' : 'live'
+  }
   if (now < start) return 'scheduled'
   if (now <= start + MATCH_WINDOW_MS) return 'live'
   return 'finished'   // kicked off long ago without live data → treat as done
