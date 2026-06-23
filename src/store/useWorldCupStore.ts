@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 import type { Match, StandingRow, GroupId } from '../types'
 import { FIXTURES } from '../data/fixtures'
 import { TEAMS } from '../data/teams'
-import { computeStandings, compareBestThirds } from '../lib/standings'
+import { computeStandings, computeProvisionalStandings, compareBestThirds } from '../lib/standings'
 import { fetchLiveMatches } from '../lib/api'
 import { effectiveStatus } from '../lib/dateUtils'
 
@@ -21,6 +21,12 @@ interface WorldCupState {
   getBestThirds: () => (StandingRow & { group: GroupId })[]
   getMatchesForHome: () => { live: Match[]; today: Match[]; tomorrow: Match[] }
   hasLiveMatches: () => boolean
+  // Live "as of now" standings that fold in current live scores
+  getProvisionalStandings: (group: GroupId) => StandingRow[]
+  getProvisionalBestThirds: () => (StandingRow & { group: GroupId })[]
+  // Groups whose final (simultaneous) matchday is being played right now
+  getLiveDefiningGroups: () => GroupId[]
+  getGroupLiveMatches: (group: GroupId) => Match[]
 
   // Actions
   setView: (v: View) => void
@@ -63,7 +69,7 @@ export const useWorldCupStore = create<WorldCupState>()(
         const { matches } = get()
         const teams = TEAMS.filter(t => t.group === group)
         const groupMatches = matches.filter(m => m.group === group)
-        return computeStandings(teams, groupMatches, group)
+        return computeStandings(teams, groupMatches)
       },
 
       getAllStandings: () => {
@@ -120,6 +126,47 @@ export const useWorldCupStore = create<WorldCupState>()(
         return matches.some(m =>
           !m.interruption && effectiveStatus(m.status, m.date) === 'live',
         )
+      },
+
+      getProvisionalStandings: (group) => {
+        const { matches } = get()
+        const teams = TEAMS.filter(t => t.group === group)
+        const groupMatches = matches.filter(m => m.group === group)
+        return computeProvisionalStandings(teams, groupMatches)
+      },
+
+      getProvisionalBestThirds: () => {
+        const groups: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
+        const thirds = groups.map(g => {
+          const rows = get().getProvisionalStandings(g)
+          return rows[2] ? { ...rows[2], group: g } : null
+        }).filter(Boolean) as (StandingRow & { group: GroupId })[]
+        return thirds.sort(compareBestThirds)
+      },
+
+      getGroupLiveMatches: (group) => {
+        const { matches } = get()
+        return matches
+          .filter(m => m.group === group && !m.interruption
+            && effectiveStatus(m.status, m.date) === 'live')
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      },
+
+      getLiveDefiningGroups: () => {
+        const { matches } = get()
+        const groups: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
+        return groups.filter(g => {
+          let live = 0, finished = 0
+          for (const m of matches) {
+            if (m.group !== g || m.interruption) continue
+            const s = effectiveStatus(m.status, m.date)
+            if (s === 'live') live++
+            else if (s === 'finished') finished++
+          }
+          // Final matchday = the first 4 group games are done and at least one
+          // of the last (simultaneous) pair is being played right now.
+          return live >= 1 && finished >= 4
+        })
       },
 
       refresh: async (full = false) => {
