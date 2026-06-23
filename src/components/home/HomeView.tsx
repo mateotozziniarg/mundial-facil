@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { useWorldCupStore } from '../../store/useWorldCupStore'
 import { MatchCard } from './MatchCard'
 import { LiveGroupSnippet } from './LiveGroupSnippet'
+import { DemoSection } from './DemoSection'
 
 const API_POLL = 45_000   // hit the live API every 45s when matches are live
 
 export function HomeView() {
-  const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh, getLiveDefiningGroups, demoMode, toggleDemoMode } = useWorldCupStore()
+  const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh, getLiveDefiningGroups } = useWorldCupStore()
   const { live, today, tomorrow } = getMatchesForHome()
   const live_ = hasLiveMatches()
   const definingGroups = getLiveDefiningGroups()
+  const [showDemo, setShowDemo] = useState(false)
 
   // 1s tick drives countdowns & live minutes
   const [now, setNow] = useState(() => Date.now())
@@ -29,31 +31,28 @@ export function HomeView() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [live_, refresh])
 
-  const hasContent = live.length > 0 || today.length > 0 || tomorrow.length > 0 || definingGroups.length > 0
+  const hasContent = live.length > 0 || today.length > 0 || tomorrow.length > 0
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-9">
       <Hero live={live_} lastRefresh={lastRefresh} />
 
-      {!hasContent && (
-        <div className="text-center py-20 text-ink-3">
-          <div className="text-5xl mb-4 opacity-60">⚽</div>
-          <p>No hay partidos para hoy ni mañana.</p>
-          <p className="text-xs mt-1">El fixture sigue más abajo en cada grupo.</p>
-        </div>
-      )}
-
+      {/* "Definición en vivo" — only shown when a group's final simultaneous pair is live */}
       {definingGroups.length > 0 && (
         <Section title="Definición en vivo" accent="live" count={definingGroups.length}>
           <p className="-mt-2 text-xs text-ink-3">
             Última fecha en simultáneo: así quedaría cada grupo con el resultado de este momento.
           </p>
-          <Grid>
-            {definingGroups.map(g => (
-              <LiveGroupSnippet key={g} group={g} now={now} />
-            ))}
-          </Grid>
+          <Grid>{definingGroups.map(g => <LiveGroupSnippet key={g} group={g} now={now} />)}</Grid>
         </Section>
+      )}
+
+      {!hasContent && definingGroups.length === 0 && !showDemo && (
+        <div className="text-center py-20 text-ink-3">
+          <div className="text-5xl mb-4 opacity-60">⚽</div>
+          <p>No hay partidos para hoy ni mañana.</p>
+          <p className="text-xs mt-1">El fixture sigue más abajo en cada grupo.</p>
+        </div>
       )}
 
       {live.length > 0 && (
@@ -74,21 +73,28 @@ export function HomeView() {
         </Section>
       )}
 
+      {/* Demo preview — inserted after existing sections, never replacing them */}
+      {showDemo && (
+        <Section title="Definición en vivo · demo" accent="gold" count={0}>
+          <DemoSection now={now} />
+        </Section>
+      )}
+
       <TournamentPulse />
       {new URLSearchParams(window.location.search).has('debug') && <ESPNDebugPanel />}
 
-      {/* Hidden demo toggle — simulates simultaneous final-matchday in live mode */}
+      {/* Hidden toggle at the bottom */}
       <div className="flex justify-center pb-2">
         <button
-          onClick={toggleDemoMode}
+          onClick={() => setShowDemo(v => !v)}
           className={[
             'text-[10px] px-3 py-1.5 rounded-full border transition-all duration-200',
-            demoMode
-              ? 'border-[var(--color-live)]/40 text-[var(--color-live)] bg-[var(--color-live)]/8'
+            showDemo
+              ? 'border-[var(--color-gold)]/50 text-[var(--color-gold)] bg-[var(--color-gold)]/8'
               : 'border-[var(--color-line)] text-ink-3 hover:text-ink-2 hover:border-[var(--color-line-2)]',
           ].join(' ')}
         >
-          {demoMode ? '✕ salir del modo demo' : '🎮 simular definición en vivo'}
+          {showDemo ? '✕ cerrar demo' : '🎮 previsualizar definición en vivo'}
         </button>
       </div>
     </div>
@@ -140,7 +146,7 @@ function Section({ title, accent, count, children }: {
       <div className="flex items-center gap-3">
         <span className={`w-1 h-5 rounded-full ${bar}`} />
         <h2 className="text-lg font-bold text-white">{title}</h2>
-        <span className="text-xs text-ink-3 nums">{count}</span>
+        {count > 0 && <span className="text-xs text-ink-3 nums">{count}</span>}
         <div className="flex-1 h-px hairline border-t" />
       </div>
       {children}
