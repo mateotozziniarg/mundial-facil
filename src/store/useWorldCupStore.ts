@@ -14,6 +14,7 @@ interface WorldCupState {
   currentView: View
   lastRefresh: number | null
   isRefreshing: boolean
+  demoMode: boolean
 
   // Derived (computed on demand)
   getGroupStandings: (group: GroupId) => StandingRow[]
@@ -32,6 +33,7 @@ interface WorldCupState {
   setView: (v: View) => void
   refresh: (full?: boolean) => Promise<void>
   updateMatchScore: (id: number, homeScore: number, awayScore: number, status: Match['status']) => void
+  toggleDemoMode: () => void
 }
 
 function nowArgBucket(): string {
@@ -55,6 +57,50 @@ function dateArgBucket(iso: string): string {
   }).format(new Date(iso))
 }
 
+// ─── Demo mode helpers ───────────────────────────────────────────────────────
+
+// Scores injected into the two final-matchday games: makes the table tense
+// (home wins first, away wins second → group reshuffle).
+const DEMO_SCORES: [number, number][] = [[1, 0], [0, 2]]
+
+/** Returns the group's 6 matches with the last two converted to live + mock scores. */
+function injectDemoLive(groupMatches: Match[]): Match[] {
+  const sorted = [...groupMatches].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  )
+  // Last two by date = the simultaneous final matchday pair
+  const lastTwoIds = new Set(sorted.slice(-2).map(m => m.id))
+  let scoreIdx = 0
+  return groupMatches.map(m => {
+    if (!lastTwoIds.has(m.id)) return m
+    const [hs, as_] = DEMO_SCORES[scoreIdx++ % DEMO_SCORES.length]
+    return {
+      ...m,
+      status: 'live' as const,
+      homeScore: hs,
+      awayScore: as_,
+      minute: 67 + scoreIdx * 4,
+    }
+  })
+}
+
+/** Groups eligible for demo: 4+ finished matches and 2 scheduled final-pair games. */
+function demoGroups(matches: Match[]): GroupId[] {
+  const groups: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
+  return groups.filter(g => {
+    const gm = matches.filter(m => m.group === g)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    const lastTwo = gm.slice(-2)
+    const firstFour = gm.slice(0, 4)
+    return (
+      lastTwo.every(m => m.status === 'scheduled') &&
+      firstFour.some(m => m.status === 'finished')
+    )
+  }).slice(0, 2)  // cap at 2 for readability
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+
 export const useWorldCupStore = create<WorldCupState>()(
   persist(
     (set, get) => ({
@@ -62,6 +108,9 @@ export const useWorldCupStore = create<WorldCupState>()(
       currentView: 'home',
       lastRefresh: null,
       isRefreshing: false,
+      demoMode: false,
+
+      toggleDemoMode: () => set(s => ({ demoMode: !s.demoMode })),
 
       setView: (v) => set({ currentView: v }),
 
@@ -129,9 +178,10 @@ export const useWorldCupStore = create<WorldCupState>()(
       },
 
       getProvisionalStandings: (group) => {
-        const { matches } = get()
+        const { matches, demoMode } = get()
         const teams = TEAMS.filter(t => t.group === group)
-        const groupMatches = matches.filter(m => m.group === group)
+        let groupMatches = matches.filter(m => m.group === group)
+        if (demoMode) groupMatches = injectDemoLive(groupMatches)
         return computeProvisionalStandings(teams, groupMatches)
       },
 
@@ -145,7 +195,11 @@ export const useWorldCupStore = create<WorldCupState>()(
       },
 
       getGroupLiveMatches: (group) => {
-        const { matches } = get()
+        const { matches, demoMode } = get()
+        if (demoMode) {
+          const groupMatches = matches.filter(m => m.group === group)
+          return injectDemoLive(groupMatches).filter(m => m.status === 'live')
+        }
         return matches
           .filter(m => m.group === group && !m.interruption
             && effectiveStatus(m.status, m.date) === 'live')
@@ -153,7 +207,10 @@ export const useWorldCupStore = create<WorldCupState>()(
       },
 
       getLiveDefiningGroups: () => {
-        const { matches } = get()
+        const { matches, demoMode } = get()
+
+        if (demoMode) return demoGroups(matches)
+
         const groups: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
         return groups.filter(g => {
           let live = 0, finished = 0
@@ -235,6 +292,7 @@ export const useWorldCupStore = create<WorldCupState>()(
     }),
     {
       name: 'mundial-facil-v3',
+      // demoMode intentionally excluded — always starts false on page load
       partialize: (s) => ({ matches: s.matches }),
     },
   ),

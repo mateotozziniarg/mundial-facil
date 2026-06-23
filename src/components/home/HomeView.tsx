@@ -6,7 +6,7 @@ import { LiveGroupSnippet } from './LiveGroupSnippet'
 const API_POLL = 45_000   // hit the live API every 45s when matches are live
 
 export function HomeView() {
-  const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh, getLiveDefiningGroups } = useWorldCupStore()
+  const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh, getLiveDefiningGroups, demoMode, toggleDemoMode } = useWorldCupStore()
   const { live, today, tomorrow } = getMatchesForHome()
   const live_ = hasLiveMatches()
   const definingGroups = getLiveDefiningGroups()
@@ -76,6 +76,21 @@ export function HomeView() {
 
       <TournamentPulse />
       {new URLSearchParams(window.location.search).has('debug') && <ESPNDebugPanel />}
+
+      {/* Hidden demo toggle — simulates simultaneous final-matchday in live mode */}
+      <div className="flex justify-center pb-2">
+        <button
+          onClick={toggleDemoMode}
+          className={[
+            'text-[10px] px-3 py-1.5 rounded-full border transition-all duration-200',
+            demoMode
+              ? 'border-[var(--color-live)]/40 text-[var(--color-live)] bg-[var(--color-live)]/8'
+              : 'border-[var(--color-line)] text-ink-3 hover:text-ink-2 hover:border-[var(--color-line-2)]',
+          ].join(' ')}
+        >
+          {demoMode ? '✕ salir del modo demo' : '🎮 simular definición en vivo'}
+        </button>
+      </div>
     </div>
   )
 }
