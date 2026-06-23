@@ -1,4 +1,4 @@
-import type { Match, Team, StandingRow, GroupId } from '../types'
+import type { Match, Team, StandingRow } from '../types'
 
 interface HeadToHeadStats {
   points: number
@@ -6,10 +6,17 @@ interface HeadToHeadStats {
   goalsFor: number
 }
 
-function h2hStats(teamId: string, opponents: string[], matches: Match[]): HeadToHeadStats {
+// Which matches "count" toward a standing. Final standings only count
+// finished games; provisional ("en vivo") standings also fold in the
+// current score of matches that are being played right now.
+type CountFn = (m: Match) => boolean
+const FINISHED: CountFn = m => m.status === 'finished'
+const FINISHED_OR_LIVE: CountFn = m => m.status === 'finished' || m.status === 'live'
+
+function h2hStats(teamId: string, opponents: string[], matches: Match[], counts: CountFn): HeadToHeadStats {
   let pts = 0, gf = 0, ga = 0
   for (const m of matches) {
-    if (m.status !== 'finished' || m.homeScore === null || m.awayScore === null) continue
+    if (!counts(m) || m.homeScore === null || m.awayScore === null) continue
     const isHome = m.homeTeamId === teamId && opponents.includes(m.awayTeamId)
     const isAway = m.awayTeamId === teamId && opponents.includes(m.homeTeamId)
     if (isHome) {
@@ -23,11 +30,11 @@ function h2hStats(teamId: string, opponents: string[], matches: Match[]): HeadTo
   return { points: pts, goalDiff: gf - ga, goalsFor: gf }
 }
 
-function buildRow(team: Team, groupMatches: Match[]): Omit<StandingRow, 'position' | 'qualified'> {
+function buildRow(team: Team, groupMatches: Match[], counts: CountFn): Omit<StandingRow, 'position' | 'qualified'> {
   let played = 0, won = 0, drawn = 0, lost = 0, gf = 0, ga = 0
 
   for (const m of groupMatches) {
-    if (m.status !== 'finished' || m.homeScore === null || m.awayScore === null) continue
+    if (!counts(m) || m.homeScore === null || m.awayScore === null) continue
     const isHome = m.homeTeamId === team.id
     const isAway = m.awayTeamId === team.id
     if (!isHome && !isAway) continue
@@ -54,18 +61,9 @@ function buildRow(team: Team, groupMatches: Match[]): Omit<StandingRow, 'positio
   }
 }
 
-/**
- * Sorts group standings by FIFA 2026 tiebreaker rules:
- * 1. Points  2. Goal diff  3. Goals for
- * 4. H2H points (among tied teams)  5. H2H goal diff  6. H2H goals for
- * 7. Fair play (approximated — not tracked in seed)  8. Drawing of lots
- */
-export function computeStandings(
-  teams: Team[],
-  groupMatches: Match[],
-  _group: GroupId,
-): StandingRow[] {
-  const rows = teams.map(t => buildRow(t, groupMatches))
+/** Sort group rows by FIFA tiebreakers, given which matches count. */
+function sortRows(teams: Team[], groupMatches: Match[], counts: CountFn): Omit<StandingRow, 'position' | 'qualified'>[] {
+  const rows = teams.map(t => buildRow(t, groupMatches, counts))
 
   rows.sort((a, b) => {
     // 1. Points
@@ -79,8 +77,8 @@ export function computeStandings(
       .filter(r => r.points === a.points && r.goalDiff === a.goalDiff && r.goalsFor === a.goalsFor)
       .map(r => r.team.id)
     if (tiedIds.length > 1) {
-      const ha = h2hStats(a.team.id, tiedIds.filter(id => id !== a.team.id), groupMatches)
-      const hb = h2hStats(b.team.id, tiedIds.filter(id => id !== b.team.id), groupMatches)
+      const ha = h2hStats(a.team.id, tiedIds.filter(id => id !== a.team.id), groupMatches, counts)
+      const hb = h2hStats(b.team.id, tiedIds.filter(id => id !== b.team.id), groupMatches, counts)
       if (hb.points   !== ha.points)   return hb.points   - ha.points
       if (hb.goalDiff !== ha.goalDiff) return hb.goalDiff - ha.goalDiff
       if (hb.goalsFor !== ha.goalsFor) return hb.goalsFor - ha.goalsFor
@@ -88,6 +86,21 @@ export function computeStandings(
     // Alphabetical fallback (stable)
     return a.team.name.localeCompare(b.team.name)
   })
+
+  return rows
+}
+
+/**
+ * Sorts group standings by FIFA 2026 tiebreaker rules:
+ * 1. Points  2. Goal diff  3. Goals for
+ * 4. H2H points (among tied teams)  5. H2H goal diff  6. H2H goals for
+ * 7. Fair play (approximated — not tracked in seed)  8. Drawing of lots
+ */
+export function computeStandings(
+  teams: Team[],
+  groupMatches: Match[],
+): StandingRow[] {
+  const rows = sortRows(teams, groupMatches, FINISHED)
 
   const matchesPlayed = Math.max(...rows.map(r => r.played), 0)
   const maxMatchdays = 3
@@ -101,6 +114,24 @@ export function computeStandings(
     }
     return { ...row, position: i + 1, qualified }
   })
+}
+
+/**
+ * "As of now" standings that also fold in the live score of matches being
+ * played right now — used for the live group-definition snippet. Positions
+ * 1-2 are provisional direct qualifiers, 3 is the provisional best-third
+ * candidate, 4 is provisionally out.
+ */
+export function computeProvisionalStandings(
+  teams: Team[],
+  groupMatches: Match[],
+): StandingRow[] {
+  const rows = sortRows(teams, groupMatches, FINISHED_OR_LIVE)
+  return rows.map((row, i) => ({
+    ...row,
+    position: i + 1,
+    qualified: i < 2 ? 'direct' : i === 2 ? 'possible-third' : 'eliminated',
+  }))
 }
 
 // For "best thirds" ranking across all groups
