@@ -34,6 +34,30 @@ export function formatArgDateTime(isoDate: string): string {
   }).format(new Date(isoDate))
 }
 
+/** Stable 'YYYY-MM-DD' key for the Argentina calendar day of an instant. */
+export function argDayKey(isoDate: string | number | Date): string {
+  // en-CA yields ISO-style YYYY-MM-DD
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(isoDate))
+}
+
+/** Today's Argentina day key. */
+export function argTodayKey(now: number = Date.now()): string {
+  return argDayKey(now)
+}
+
+/** Pretty long label for a day key, e.g. "Martes 17 de junio". */
+export function formatDayKeyLong(dayKey: string): string {
+  const [y, m, d] = dayKey.split('-').map(Number)
+  // noon UTC keeps the calendar date stable across TZ
+  const date = new Date(Date.UTC(y, m - 1, d, 12))
+  const s = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long',
+  }).format(date)
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
 export function isToday(isoDate: string): boolean {
   const d = new Intl.DateTimeFormat('es-AR', { timeZone: TZ, dateStyle: 'short' }).format(new Date(isoDate))
   const t = new Intl.DateTimeFormat('es-AR', { timeZone: TZ, dateStyle: 'short' }).format(new Date())

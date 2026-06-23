@@ -7,7 +7,7 @@ import { computeStandings, compareBestThirds } from '../lib/standings'
 import { fetchLiveMatches } from '../lib/api'
 import { effectiveStatus } from '../lib/dateUtils'
 
-type View = 'home' | 'groups' | 'brackets' | 'calculator'
+type View = 'home' | 'groups' | 'brackets' | 'calculator' | 'calendar'
 
 interface WorldCupState {
   matches: Match[]

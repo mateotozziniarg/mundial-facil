@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useWorldCupStore } from '../../store/useWorldCupStore'
-import { IconHome, IconGroups, IconBracket, IconCalc, IconRefresh, IconTrophy } from '../ui/icons'
+import { IconHome, IconGroups, IconBracket, IconCalc, IconCalendar, IconRefresh, IconTrophy } from '../ui/icons'
 import { timeAgo } from '../../lib/dateUtils'
 
 const VIEWS = [
   { id: 'home' as const,       label: 'Inicio',      Icon: IconHome },
+  { id: 'calendar' as const,   label: 'Calendario',  Icon: IconCalendar },
   { id: 'groups' as const,     label: 'Grupos',      Icon: IconGroups },
   { id: 'brackets' as const,   label: 'Llaves',      Icon: IconBracket },
   { id: 'calculator' as const, label: 'Cruces',      Icon: IconCalc },

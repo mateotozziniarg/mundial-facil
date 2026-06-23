@@ -45,6 +45,13 @@ export const IconTrophy = ({ size = 18, className }: IconProps) => (
   </svg>
 )
 
+export const IconCalendar = ({ size = 18, className }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+    <rect x="3.5" y="5" width="17" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
+    <path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+  </svg>
+)
+
 export const IconClock = ({ size = 14, className }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
     <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.7" />
