@@ -1,33 +1,84 @@
-import type { GroupId, Match, StandingRow } from '../../types'
+import { useMemo } from 'react'
+import { Component, type ReactNode } from 'react'
 import { useWorldCupStore } from '../../store/useWorldCupStore'
-import { TEAM_MAP, isArgentina } from '../../data/teams'
+import { TEAMS, TEAM_MAP, isArgentina } from '../../data/teams'
+import { computeProvisionalStandings, compareBestThirds } from '../../lib/standings'
 import { Flag } from '../ui/Flag'
 import { elapsedMinutes } from '../../lib/dateUtils'
+import type { GroupId, Match, StandingRow } from '../../types'
 
-const QUALIFY_SPOTS = 8   // best thirds that advance to the round of 32
+const ALL_GROUPS: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
+const QUALIFY_SPOTS = 8
+
+// ─── Error boundary ───────────────────────────────────────────────────────────
+// Prevents a crash inside one snippet from taking down the whole app.
+class SnippetBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() {
+    if (this.state.failed) return null
+    return this.props.children
+  }
+}
+
+// ─── Public export ────────────────────────────────────────────────────────────
 
 interface Props { group: GroupId; now: number }
 
-/**
- * Live group-definition snippet: while a group's final (simultaneous) matchday
- * is being played, show how the table would end up "with the score right now" —
- * who qualifies directly, who'd grab the 3rd-place spot, and whether that 3rd
- * would currently sneak into the best-thirds bracket.
- */
-export function LiveGroupSnippet({ group, now }: Props) {
-  const standings   = useWorldCupStore(s => s.getProvisionalStandings(group))
-  const liveMatches = useWorldCupStore(s => s.getGroupLiveMatches(group))
-  const bestThirds  = useWorldCupStore(s => s.getProvisionalBestThirds())
+export function LiveGroupSnippet(props: Props) {
+  return (
+    <SnippetBoundary>
+      <LiveGroupSnippetInner {...props} />
+    </SnippetBoundary>
+  )
+}
+
+// ─── Inner component — reads only raw matches, computes everything locally ────
+
+function LiveGroupSnippetInner({ group, now }: Props) {
+  // Only read the raw matches array — no complex getter calls as selectors.
+  // Those getters call get() internally which can race with React's render.
+  const allMatches = useWorldCupStore(s => s.matches)
+
+  const { standings, liveMatches, thirdRank } = useMemo(() => {
+    try {
+      const groupMatches = allMatches.filter(m => m.group === group)
+      const teams = TEAMS.filter(t => t.group === group)
+      const standings = computeProvisionalStandings(teams, groupMatches)
+
+      // Live matches for this group (with scores, not interrupted)
+      const liveMatches = groupMatches.filter(
+        m => m.status === 'live' && !m.interruption
+          && m.homeScore != null && m.awayScore != null
+      )
+
+      // Best thirds ranking across all 12 groups
+      const thirds = ALL_GROUPS.map(g => {
+        const gm = allMatches.filter(m => m.group === g)
+        const gt = TEAMS.filter(t => t.group === g)
+        const rows = computeProvisionalStandings(gt, gm)
+        return rows[2] ? { ...rows[2], group: g } : null
+      }).filter((x): x is StandingRow & { group: GroupId } => x !== null)
+      thirds.sort(compareBestThirds)
+
+      const thirdRow  = standings[2]
+      const thirdRank = thirdRow
+        ? thirds.findIndex(t => t.team.id === thirdRow.team.id)
+        : -1
+
+      return { standings, liveMatches, thirdRank }
+    } catch {
+      return { standings: [], liveMatches: [], thirdRank: -1 }
+    }
+  }, [group, allMatches])
 
   const thirdRow = standings[2]
-  const thirdRank = thirdRow
-    ? bestThirds.findIndex(t => t.team.id === thirdRow.team.id)
-    : -1
-  const thirdIn = thirdRank >= 0 && thirdRank < QUALIFY_SPOTS
+  const thirdIn  = thirdRank >= 0 && thirdRank < QUALIFY_SPOTS
 
   return (
     <div className="panel overflow-hidden fade-up"
       style={{ borderColor: 'color-mix(in srgb, var(--color-live) 35%, transparent)' }}>
+
       {/* Header */}
       <div className="px-4 py-3 flex items-center gap-2.5 border-b hairline bg-[var(--color-raised)]/40">
         <span className="grid place-items-center w-7 h-7 rounded-lg bg-[var(--color-live)]/15 text-[var(--color-live)] text-[13px] font-bold border border-[var(--color-live)]/25">
@@ -40,7 +91,7 @@ export function LiveGroupSnippet({ group, now }: Props) {
         </span>
       </div>
 
-      {/* Live scorelines feeding this table */}
+      {/* Live scorelines */}
       {liveMatches.length > 0 && (
         <div className="px-3 pt-2.5 space-y-1">
           {liveMatches.map(m => <LiveLine key={m.id} match={m} now={now} />)}
@@ -61,16 +112,14 @@ export function LiveGroupSnippet({ group, now }: Props) {
           <span className="text-ink-3">3.°: </span>
           <span className="font-semibold text-ink">{thirdRow.team.shortName ?? thirdRow.team.name}</span>{' '}
           {thirdIn ? (
-            <span className="text-[var(--color-grass)]">
-              hoy entraría como mejor tercero ({ordinal(thirdRank + 1)} de {QUALIFY_SPOTS}) → a 16avos
+            <span style={{ color: 'var(--color-grass)' }}>
+              hoy entraría como mejor tercero ({thirdRank + 1}.° de {QUALIFY_SPOTS}) → a 16avos
             </span>
           ) : thirdRank >= 0 ? (
-            <span className="text-[#ff7b81]">
-              hoy quedaría afuera de los mejores terceros ({ordinal(thirdRank + 1)} de 12)
+            <span style={{ color: '#ff7b81' }}>
+              hoy quedaría afuera de los mejores terceros ({thirdRank + 1}.° de 12)
             </span>
-          ) : (
-            <span className="text-ink-3">aún sin posición de tercero comparable</span>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -81,14 +130,14 @@ export function LiveGroupSnippet({ group, now }: Props) {
   )
 }
 
-// ─── Live scoreline ──────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function LiveLine({ match, now }: { match: Match; now: number }) {
   const home = TEAM_MAP.get(match.homeTeamId)
   const away = TEAM_MAP.get(match.awayTeamId)
   if (!home || !away) return null
   const minute = match.minute ?? elapsedMinutes(match.date, now)
-  const clock = match.isHalftime ? 'ET' : `${minute}'`
+  const clock  = match.isHalftime ? 'ET' : `${minute}'`
 
   return (
     <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-[var(--color-base)]/60 text-[12px]">
@@ -104,19 +153,17 @@ function LiveLine({ match, now }: { match: Match; now: number }) {
   )
 }
 
-// ─── Standing line ───────────────────────────────────────────────────────────
-
-const OUTCOME: Record<1 | 2 | 3 | 4, { color: string; label: string; icon: string }> = {
-  1: { color: 'var(--color-grass)', label: 'Clasifica',  icon: '✓' },
-  2: { color: 'var(--color-grass)', label: 'Clasifica',  icon: '✓' },
-  3: { color: 'var(--color-gold)',  label: '3.°',         icon: '⟳' },
-  4: { color: '#ff7b81',            label: 'Afuera',      icon: '✕' },
+const OUTCOME: Record<number, { color: string; label: string; icon: string }> = {
+  1: { color: 'var(--color-grass)', label: 'Clasifica', icon: '✓' },
+  2: { color: 'var(--color-grass)', label: 'Clasifica', icon: '✓' },
+  3: { color: 'var(--color-gold)',  label: '3.°',        icon: '⟳' },
+  4: { color: '#ff7b81',            label: 'Afuera',     icon: '✕' },
 }
 
 function StandingLine({ row, position }: { row: StandingRow; position: number }) {
+  const out = OUTCOME[Math.min(position, 4)]
   const arg = isArgentina(row.team.id)
-  const pos = (position <= 4 ? position : 4) as 1 | 2 | 3 | 4
-  const out = OUTCOME[pos]
+  const gd  = row.goalDiff
 
   return (
     <div className={`relative grid items-center gap-1.5 pl-2.5 pr-2 py-1.5 rounded-lg ${arg ? 'arg-glow' : ''}`}
@@ -132,7 +179,7 @@ function StandingLine({ row, position }: { row: StandingRow; position: number })
       </div>
 
       <span className="flex items-center gap-2 text-[11px] nums shrink-0">
-        <span className="text-ink-3">{signed(row.goalDiff)}</span>
+        <span className="text-ink-3">{gd > 0 ? `+${gd}` : gd}</span>
         <span className="font-bold text-white w-4 text-right">{row.points}</span>
       </span>
 
@@ -142,14 +189,4 @@ function StandingLine({ row, position }: { row: StandingRow; position: number })
       </span>
     </div>
   )
-}
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
-function signed(n: number): string {
-  return n > 0 ? `+${n}` : `${n}`
-}
-
-function ordinal(n: number): string {
-  return `${n}.°`
 }
