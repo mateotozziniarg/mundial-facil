@@ -1,17 +1,38 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { useWorldCupStore } from '../../store/useWorldCupStore'
 import { MatchCard } from './MatchCard'
 import { LiveGroupSnippet } from './LiveGroupSnippet'
 import { DemoSection } from './DemoSection'
+import { effectiveStatus } from '../../lib/dateUtils'
+import type { GroupId } from '../../types'
 
 const API_POLL = 45_000   // hit the live API every 45s when matches are live
+const ALL_GROUPS: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
 
 export function HomeView() {
-  const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh, getLiveDefiningGroups } = useWorldCupStore()
+  const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh } = useWorldCupStore()
+  const allMatches = useWorldCupStore(s => s.matches)
   const { live, today, tomorrow } = getMatchesForHome()
   const live_ = hasLiveMatches()
-  const definingGroups = getLiveDefiningGroups()
   const [showDemo, setShowDemo] = useState(false)
+
+  // Compute defining groups locally — avoids calling store getters during render
+  const definingGroups = useMemo(() => {
+    try {
+      return ALL_GROUPS.filter(g => {
+        let liveCount = 0, finishedCount = 0
+        for (const m of allMatches) {
+          if (m.group !== g || m.interruption) continue
+          const s = effectiveStatus(m.status, m.date)
+          if (s === 'live') liveCount++
+          else if (s === 'finished') finishedCount++
+        }
+        return liveCount >= 1 && finishedCount >= 4
+      })
+    } catch {
+      return []
+    }
+  }, [allMatches])
 
   // 1s tick drives countdowns & live minutes
   const [now, setNow] = useState(() => Date.now())
