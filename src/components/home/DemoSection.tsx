@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useWorldCupStore } from '../../store/useWorldCupStore'
 import { DefiningGroupCard } from './DefiningGroupCard'
+import { bestThirdRanks } from '../../lib/groupDefinition'
 import type { GroupId, Match } from '../../types'
 
 const ALL_GROUPS: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
@@ -38,11 +39,11 @@ interface Props { now: number }
 export function DemoSection({ now }: Props) {
   const matches = useWorldCupStore(s => s.matches)
 
-  const { demoGroups, mocked } = useMemo(() => {
+  const { demoGroups, mocked, ranks } = useMemo(() => {
     const groups = pickDemoGroups(matches)
     let mocked = matches
     for (const g of groups) mocked = injectMockLive(mocked, g)
-    return { demoGroups: groups, mocked }
+    return { demoGroups: groups, mocked, ranks: bestThirdRanks(mocked) }
   }, [matches])
 
   if (demoGroups.length === 0) {
@@ -62,7 +63,7 @@ export function DemoSection({ now }: Props) {
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {demoGroups.map(g => (
-          <DefiningGroupCard key={g} group={g} allMatches={mocked} now={now} demo />
+          <DefiningGroupCard key={g} group={g} allMatches={mocked} now={now} thirdRank={ranks[g] ?? -1} demo />
         ))}
       </div>
     </>

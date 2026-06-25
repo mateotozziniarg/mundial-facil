@@ -1,11 +1,10 @@
 import { useMemo, Component, type ReactNode } from 'react'
 import { TEAMS, TEAM_MAP, isArgentina } from '../../data/teams'
-import { computeProvisionalStandings, compareBestThirds } from '../../lib/standings'
+import { computeProvisionalStandings } from '../../lib/standings'
 import { Flag } from '../ui/Flag'
-import { effectiveStatus, formatArgTime, countdownTo, elapsedMinutes } from '../../lib/dateUtils'
+import { effectiveStatus, formatArgTime } from '../../lib/dateUtils'
 import type { GroupId, Match, StandingRow } from '../../types'
 
-const ALL_GROUPS: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
 const QUALIFY_SPOTS = 8   // best thirds that advance to the round of 32
 
 type DayState = 'scheduled' | 'live' | 'finished'
@@ -20,7 +19,7 @@ class CardBoundary extends Component<{ children: ReactNode }, { failed: boolean 
 
 // ─── Public export ────────────────────────────────────────────────────────────
 
-interface Props { group: GroupId; allMatches: Match[]; now: number; demo?: boolean }
+interface Props { group: GroupId; allMatches: Match[]; now: number; thirdRank: number; demo?: boolean }
 
 export function DefiningGroupCard(props: Props) {
   return (
@@ -32,10 +31,10 @@ export function DefiningGroupCard(props: Props) {
 
 // ─── Inner ────────────────────────────────────────────────────────────────────
 
-function DefiningGroupCardInner({ group, allMatches, now, demo = false }: Props) {
-  // Standings + best-thirds rank are time-independent (they read raw m.status),
-  // so memoize on [group, allMatches] only — not on the 1s `now` tick.
-  const { standings, finalPair, thirdRank } = useMemo(() => {
+function DefiningGroupCardInner({ group, allMatches, now, thirdRank, demo = false }: Props) {
+  // Standings are time-independent (read raw m.status), so memoize on
+  // [group, allMatches] only — not on the 1s `now` tick.
+  const { standings, finalPair } = useMemo(() => {
     try {
       const groupMatches = allMatches
         .filter(m => m.group === group)
@@ -43,30 +42,23 @@ function DefiningGroupCardInner({ group, allMatches, now, demo = false }: Props)
       const teams = TEAMS.filter(t => t.group === group)
       const standings = computeProvisionalStandings(teams, groupMatches)
       const finalPair = groupMatches.slice(-2)
-
-      const thirds = ALL_GROUPS.map(g => {
-        const gm = allMatches.filter(m => m.group === g)
-        const gt = TEAMS.filter(t => t.group === g)
-        const rows = computeProvisionalStandings(gt, gm)
-        return rows[2] ? { ...rows[2], group: g } : null
-      }).filter((x): x is StandingRow & { group: GroupId } => x !== null)
-      thirds.sort(compareBestThirds)
-
-      const thirdRow = standings[2]
-      const thirdRank = thirdRow ? thirds.findIndex(t => t.team.id === thirdRow.team.id) : -1
-      return { standings, finalPair, thirdRank }
+      return { standings, finalPair }
     } catch {
-      return { standings: [] as StandingRow[], finalPair: [] as Match[], thirdRank: -1 }
+      return { standings: [] as StandingRow[], finalPair: [] as Match[] }
     }
   }, [group, allMatches])
 
   if (standings.length === 0) return null
 
-  // Per-render day state (depends on `now`)
+  // Label state is driven by the ACTUAL data behind the table — not just the
+  // clock — so we never call a group "final" before its decisive scores are in.
   const statuses = finalPair.map(m => effectiveStatus(m.status, m.date, now))
-  const anyLive = statuses.includes('live')
-  const allFinished = finalPair.length > 0 && statuses.every(s => s === 'finished')
-  const state: DayState = anyLive ? 'live' : allFinished ? 'finished' : 'scheduled'
+  const anyLiveData = finalPair.some(m => m.status === 'live' && m.homeScore != null)
+  const liveState = statuses.includes('live') || anyLiveData
+  const trulyFinished = finalPair.length > 0 && finalPair.every(
+    m => m.status === 'finished' && m.homeScore != null && m.awayScore != null,
+  )
+  const state: DayState = trulyFinished ? 'finished' : liveState ? 'live' : 'scheduled'
 
   const accent = state === 'live' ? 'var(--color-live)'
     : state === 'finished' ? 'var(--color-grass)' : 'var(--color-gold)'
@@ -178,32 +170,41 @@ function MatchLine({ match, now }: { match: Match; now: number }) {
 
   const st = effectiveStatus(match.status, match.date, now)
   const hasScore = match.homeScore != null && match.awayScore != null
-  const minute = match.minute ?? elapsedMinutes(match.date, now)
+  const minute = match.minute ?? 0
 
   // Right-hand clock/tag
-  let tag: ReactNode = null
+  let tag: ReactNode
   if (st === 'live') {
     tag = <span className="text-[9px] font-bold text-[var(--color-live)] nums">{match.isHalftime ? 'ET' : `${minute}'`}</span>
   } else if (st === 'finished') {
     tag = <span className="text-[9px] font-bold text-ink-3">Fin</span>
+  } else {
+    tag = <span className="text-[9px] font-bold text-ink-3 nums">{compactCountdown(match.date, now)}</span>
+  }
+
+  // Center: score when known; kickoff time only while scheduled; a dim dash
+  // when a game is live/finished but its score hasn't arrived yet.
+  let center: ReactNode
+  if (hasScore) {
+    center = (
+      <span className="nums font-bold text-white shrink-0 px-1">
+        {match.homeScore}<span className="text-ink-3 mx-0.5">-</span>{match.awayScore}
+      </span>
+    )
+  } else if (st === 'scheduled') {
+    center = <span className="nums text-ink-3 shrink-0 text-[11px] px-1">{formatArgTime(match.date)}</span>
+  } else {
+    center = <span className="text-ink-3 shrink-0 px-1">–</span>
   }
 
   return (
     <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-[var(--color-base)]/60 text-[12px]">
       <Flag team={home} size={14} />
       <span className="flex-1 truncate text-ink-2 text-right">{home.shortName ?? home.name}</span>
-      {st === 'scheduled' || !hasScore ? (
-        <span className="nums text-ink-3 shrink-0 text-[11px] px-1">{formatArgTime(match.date)}</span>
-      ) : (
-        <span className="nums font-bold text-white shrink-0 px-1">
-          {match.homeScore}<span className="text-ink-3 mx-0.5">-</span>{match.awayScore}
-        </span>
-      )}
+      {center}
       <span className="flex-1 truncate text-ink-2">{away.shortName ?? away.name}</span>
       <Flag team={away} size={14} />
-      <span className="ml-1 shrink-0 w-7 text-right grid place-items-end">
-        {tag ?? <span className="text-[8.5px] text-ink-3 leading-tight">{countdownTo(match.date, now).replace('Faltan ', '').replace('Empieza pronto', 'pronto')}</span>}
-      </span>
+      <span className="ml-1 shrink-0 text-right whitespace-nowrap min-w-[2.4rem]">{tag}</span>
     </div>
   )
 }
@@ -258,4 +259,15 @@ function thirdVerb(state: DayState, qualifies: boolean): string {
   if (state === 'finished') return qualifies ? 'entró como' : 'quedó afuera de'
   if (state === 'live')      return qualifies ? 'va entrando como' : 'va quedando afuera de'
   return qualifies ? 'así entraría como' : 'así quedaría afuera de'
+}
+
+/** Compact "Xh YYm" / "Zm" countdown that fits a tight slot. */
+function compactCountdown(iso: string, now: number): string {
+  const diff = +new Date(iso) - now
+  if (diff <= 0) return 'ya'
+  const totalMin = Math.floor(diff / 60000)
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  if (h >= 1) return `${h}h ${m.toString().padStart(2, '0')}m`
+  return `${m}m`
 }

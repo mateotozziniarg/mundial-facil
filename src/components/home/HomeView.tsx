@@ -3,35 +3,9 @@ import { useWorldCupStore } from '../../store/useWorldCupStore'
 import { MatchCard } from './MatchCard'
 import { DefiningGroupCard } from './DefiningGroupCard'
 import { DemoSection } from './DemoSection'
-import { argDayKey, argTodayKey } from '../../lib/dateUtils'
-import type { GroupId, Match } from '../../types'
+import { definingGroupsFor, bestThirdRanks } from '../../lib/groupDefinition'
 
 const API_POLL = 45_000   // hit the live API every 45s when matches are live
-const ALL_GROUPS: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
-// Keep a group's card visible across midnight while/just-after its games run.
-const AFTER_KICKOFF_MS = 6 * 60 * 60 * 1000
-
-/**
- * Groups whose final (simultaneous) matchday falls on *today* in Argentina time
- * — shown all day: before kickoff (fixtures), during (live), and after (final).
- * Also kept up for a few hours past kickoff so a late game that finishes after
- * midnight doesn't vanish the moment the calendar day flips.
- */
-function definingGroupsFor(allMatches: Match[], now: number): GroupId[] {
-  const todayKey = argTodayKey(now)
-  return ALL_GROUPS.filter(g => {
-    const gm = allMatches
-      .filter(m => m.group === g)
-      .sort((a, b) => +new Date(a.date) - +new Date(b.date))
-    const finalPair = gm.slice(-2)
-    if (finalPair.length < 2) return false
-    const last = finalPair[finalPair.length - 1]
-    const onToday = finalPair.every(m => argDayKey(m.date) === todayKey)
-    const kickoff = +new Date(last.date)
-    const inAfterWindow = now >= kickoff && now - kickoff < AFTER_KICKOFF_MS
-    return onToday || inAfterWindow
-  })
-}
 
 export function HomeView() {
   const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh } = useWorldCupStore()
@@ -50,6 +24,11 @@ export function HomeView() {
     try { return definingGroupsFor(allMatches, now) } catch { return [] }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allMatches, minuteKey])
+
+  // Cross-group best-thirds ranking — computed once, passed to every card
+  const thirdRanks = useMemo(() => {
+    try { return bestThirdRanks(allMatches) } catch { return {} as Record<string, number> }
+  }, [allMatches])
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
@@ -79,7 +58,7 @@ export function HomeView() {
           <p className="-mt-2 text-xs text-ink-3">
             Última fecha en simultáneo. Mirá cómo llega, cómo va y cómo termina cada grupo.
           </p>
-          <Grid>{definingGroups.map(g => <DefiningGroupCard key={g} group={g} allMatches={allMatches} now={now} />)}</Grid>
+          <Grid>{definingGroups.map(g => <DefiningGroupCard key={g} group={g} allMatches={allMatches} now={now} thirdRank={thirdRanks[g] ?? -1} />)}</Grid>
         </Section>
       )}
 
