@@ -1,13 +1,37 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useWorldCupStore } from '../../store/useWorldCupStore'
 import { MatchCard } from './MatchCard'
-import { LiveGroupSnippet } from './LiveGroupSnippet'
+import { DefiningGroupCard } from './DefiningGroupCard'
 import { DemoSection } from './DemoSection'
-import { effectiveStatus } from '../../lib/dateUtils'
-import type { GroupId } from '../../types'
+import { argDayKey, argTodayKey } from '../../lib/dateUtils'
+import type { GroupId, Match } from '../../types'
 
 const API_POLL = 45_000   // hit the live API every 45s when matches are live
 const ALL_GROUPS: GroupId[] = ['A','B','C','D','E','F','G','H','I','J','K','L']
+// Keep a group's card visible across midnight while/just-after its games run.
+const AFTER_KICKOFF_MS = 6 * 60 * 60 * 1000
+
+/**
+ * Groups whose final (simultaneous) matchday falls on *today* in Argentina time
+ * — shown all day: before kickoff (fixtures), during (live), and after (final).
+ * Also kept up for a few hours past kickoff so a late game that finishes after
+ * midnight doesn't vanish the moment the calendar day flips.
+ */
+function definingGroupsFor(allMatches: Match[], now: number): GroupId[] {
+  const todayKey = argTodayKey(now)
+  return ALL_GROUPS.filter(g => {
+    const gm = allMatches
+      .filter(m => m.group === g)
+      .sort((a, b) => +new Date(a.date) - +new Date(b.date))
+    const finalPair = gm.slice(-2)
+    if (finalPair.length < 2) return false
+    const last = finalPair[finalPair.length - 1]
+    const onToday = finalPair.every(m => argDayKey(m.date) === todayKey)
+    const kickoff = +new Date(last.date)
+    const inAfterWindow = now >= kickoff && now - kickoff < AFTER_KICKOFF_MS
+    return onToday || inAfterWindow
+  })
+}
 
 export function HomeView() {
   const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh } = useWorldCupStore()
@@ -16,26 +40,16 @@ export function HomeView() {
   const live_ = hasLiveMatches()
   const [showDemo, setShowDemo] = useState(false)
 
-  // Compute defining groups locally — avoids calling store getters during render
-  const definingGroups = useMemo(() => {
-    try {
-      return ALL_GROUPS.filter(g => {
-        let liveCount = 0, finishedCount = 0
-        for (const m of allMatches) {
-          if (m.group !== g || m.interruption) continue
-          const s = effectiveStatus(m.status, m.date)
-          if (s === 'live') liveCount++
-          else if (s === 'finished') finishedCount++
-        }
-        return liveCount >= 1 && finishedCount >= 4
-      })
-    } catch {
-      return []
-    }
-  }, [allMatches])
-
   // 1s tick drives countdowns & live minutes
   const [now, setNow] = useState(() => Date.now())
+
+  // Defining groups for today — recomputed when matches change or each minute
+  // (cheap; the per-minute key lets the cross-midnight after-window expire).
+  const minuteKey = Math.floor(now / 60000)
+  const definingGroups = useMemo(() => {
+    try { return definingGroupsFor(allMatches, now) } catch { return [] }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allMatches, minuteKey])
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
@@ -58,13 +72,14 @@ export function HomeView() {
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-9">
       <Hero live={live_} lastRefresh={lastRefresh} />
 
-      {/* "Definición en vivo" — only shown when a group's final simultaneous pair is live */}
+      {/* Groups whose final simultaneous matchday is today — shown all day:
+          fixtures before kickoff, live during, final standings after. */}
       {definingGroups.length > 0 && (
-        <Section title="Definición en vivo" accent="live" count={definingGroups.length}>
+        <Section title="Se definen hoy" accent="gold" count={definingGroups.length}>
           <p className="-mt-2 text-xs text-ink-3">
-            Última fecha en simultáneo: así quedaría cada grupo con el resultado de este momento.
+            Última fecha en simultáneo. Mirá cómo llega, cómo va y cómo termina cada grupo.
           </p>
-          <Grid>{definingGroups.map(g => <LiveGroupSnippet key={g} group={g} now={now} />)}</Grid>
+          <Grid>{definingGroups.map(g => <DefiningGroupCard key={g} group={g} allMatches={allMatches} now={now} />)}</Grid>
         </Section>
       )}
 
