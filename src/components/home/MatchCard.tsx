@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Match, GoalEvent, CardEvent } from '../../types'
 import { TEAM_MAP, isArgentina } from '../../data/teams'
 import { getBroadcastersAR } from '../../data/broadcasters'
+import type { NextCross } from '../../lib/knockoutBuild'
 import { Flag } from '../ui/Flag'
 import { IconClock, IconPin } from '../ui/icons'
 import { formatArgTime, formatArgDate, countdownTo, elapsedMinutes, effectiveStatus } from '../../lib/dateUtils'
@@ -11,9 +12,9 @@ const STAGE_LABELS: Record<string, string> = {
   qf: 'Cuartos', sf: 'Semifinal', final: 'Final', third: '3.er Puesto',
 }
 
-interface Props { match: Match; now: number; style?: React.CSSProperties }
+interface Props { match: Match; now: number; style?: React.CSSProperties; nextCross?: NextCross | null }
 
-export function MatchCard({ match, now, style }: Props) {
+export function MatchCard({ match, now, style, nextCross }: Props) {
   const home = TEAM_MAP.get(match.homeTeamId)
   const away = TEAM_MAP.get(match.awayTeamId)
   const [showInfo, setShowInfo] = useState(false)
@@ -113,10 +114,15 @@ export function MatchCard({ match, now, style }: Props) {
         />
       )}
 
+      {/* Knockout: who the winner faces next */}
+      {match.stage !== 'group' && nextCross && <KnockoutPath nc={nextCross} />}
+
       {/* Venue + info toggle */}
       <div className="mt-3 pt-3 border-t hairline">
         <div className="flex items-center justify-between text-[10.5px] text-ink-3">
-          <span className="inline-flex items-center gap-1 truncate"><IconPin size={11} /> {match.venue}</span>
+          <span className="inline-flex items-center gap-1 truncate">
+            {match.venue ? <><IconPin size={11} /> {match.venue}</> : <span className="opacity-0">·</span>}
+          </span>
           <div className="flex items-center gap-2 ml-2 shrink-0">
             <span className="truncate">{match.city}</span>
             {hasInfo && (
@@ -158,6 +164,38 @@ export function MatchCard({ match, now, style }: Props) {
 }
 
 // ─── sub-components ────────────────────────────────────────────────────────
+
+function KnockoutPath({ nc }: { nc: NextCross }) {
+  const [a, b] = nc.oppTeams
+  const resolved = a && b
+  return (
+    <div className="mt-3 pt-3 border-t hairline">
+      <div className="text-[9.5px] font-semibold text-ink-3 uppercase tracking-wider mb-1.5">
+        El ganador avanza a {nc.nextRoundLabel}
+      </div>
+      <div className="flex items-center gap-1.5 text-[12px]">
+        <span className="text-ink-3 shrink-0">vs</span>
+        {resolved ? (
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            <span className="inline-flex items-center gap-1">
+              <Flag team={a} size={14} />
+              <span className={isArgentina(a.id) ? 'arg-text font-semibold' : 'text-ink'}>{a.shortName ?? a.name}</span>
+            </span>
+            <span className="text-ink-3 text-[10px]">o</span>
+            <span className="inline-flex items-center gap-1">
+              <Flag team={b} size={14} />
+              <span className={isArgentina(b.id) ? 'arg-text font-semibold' : 'text-ink'}>{b.shortName ?? b.name}</span>
+            </span>
+          </div>
+        ) : (
+          <span className="text-ink-2 italic">{nc.oppLabels[0]} / {nc.oppLabels[1]}</span>
+        )}
+        <span className="ml-auto text-[9px] text-ink-3 shrink-0">#{nc.oppMatchNum}</span>
+      </div>
+      <div className="text-[9px] text-ink-3 mt-1">ganador del partido #{nc.oppMatchNum}</div>
+    </div>
+  )
+}
 
 function BroadcastBadges({ matchId }: { matchId: number }) {
   const casts = getBroadcastersAR(matchId)

@@ -6,6 +6,18 @@ import { TEAMS } from '../data/teams'
 import { computeStandings, computeProvisionalStandings, compareBestThirds } from '../lib/standings'
 import { fetchLiveMatches } from '../lib/api'
 import { effectiveStatus } from '../lib/dateUtils'
+import { buildDeterminedKnockout } from '../lib/knockoutBuild'
+
+/** Append any newly-determinable knockout matches (R32 once groups end, then
+ *  each later round as its feeders are decided). Pure + additive by match id. */
+function withKnockout(matches: Match[]): Match[] {
+  try {
+    const built = buildDeterminedKnockout(matches)
+    return built.length > 0 ? [...matches, ...built] : matches
+  } catch {
+    return matches   // never let bracket generation break a refresh
+  }
+}
 
 type View = 'home' | 'groups' | 'brackets' | 'calculator' | 'calendar'
 
@@ -174,7 +186,7 @@ export const useWorldCupStore = create<WorldCupState>()(
               byPair.set([u.homeId, u.awayId].sort().join('|'), u)
             }
             set(state => ({
-              matches: state.matches.map(m => {
+              matches: withKnockout(state.matches.map(m => {
                 const u = byPair.get([m.homeTeamId, m.awayTeamId].sort().join('|'))
                 if (!u) return m
                 const flipped = u.homeId !== m.homeTeamId
@@ -182,6 +194,9 @@ export const useWorldCupStore = create<WorldCupState>()(
                 const away = flipped ? u.homeScore : u.awayScore
                 return {
                   ...m,
+                  // Correct a generated knockout placeholder's kickoff with ESPN's
+                  // real date (group dates are already correct, so leave them).
+                  date:           m.stage !== 'group' && u.kickoff ? u.kickoff : m.date,
                   homeScore:      home ?? m.homeScore,
                   awayScore:      away ?? m.awayScore,
                   minute:         u.minute ?? m.minute,
@@ -206,11 +221,13 @@ export const useWorldCupStore = create<WorldCupState>()(
                     : (m.p2Stoppage ?? null),
                   interruption: u.interruption,
                 }
-              }),
+              })),
               lastRefresh: Date.now(),
             }))
           } else {
-            set({ lastRefresh: Date.now() })
+            // No ESPN updates, but the group stage may have just completed in the
+            // seed data — still try to materialize the knockout bracket.
+            set(state => ({ matches: withKnockout(state.matches), lastRefresh: Date.now() }))
           }
         } finally {
           set({ isRefreshing: false })
@@ -226,7 +243,7 @@ export const useWorldCupStore = create<WorldCupState>()(
       },
     }),
     {
-      name: 'mundial-facil-v3',
+      name: 'mundial-facil-v4',
       partialize: (s) => ({ matches: s.matches }),
     },
   ),
