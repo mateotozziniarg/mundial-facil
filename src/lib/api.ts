@@ -1,5 +1,15 @@
 import type { MatchStatus, GoalEvent, CardEvent, Interruption } from '../types'
 import { FIXTURES } from '../data/fixtures'
+import { R32_MATCHES, R16_MATCHES, QF_MATCHES, SF_MATCHES, FINAL, THIRD_PLACE } from '../data/bracket'
+
+// All knockout-stage calendar dates (date-only), so backfill covers them too.
+const KNOCKOUT_DATES: string[] = [
+  ...R32_MATCHES.map(m => m.date),
+  ...R16_MATCHES.map(m => m.date),
+  ...QF_MATCHES.map(m => m.date),
+  ...SF_MATCHES.map(m => m.date),
+  FINAL.date, THIRD_PLACE.date,
+]
 
 const ESPN_BASE    = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard'
 const ESPN_SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary'
@@ -7,6 +17,7 @@ const ESPN_SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.
 export interface LiveUpdate {
   homeId: string
   awayId: string
+  kickoff: string | null   // ESPN's real kickoff ISO date (corrects KO placeholders)
   homeScore: number | null
   awayScore: number | null
   minute: number | null
@@ -128,7 +139,7 @@ interface EspnCompetition {
   competitors: EspnCompetitor[]; status: EspnStatus
   scoringPlays?: AnyArr; keyEvents?: AnyArr; details?: AnyArr
 }
-interface EspnEvent { id?: string; competitions?: EspnCompetition[] }
+interface EspnEvent { id?: string; date?: string; competitions?: EspnCompetition[] }
 interface EspnKeyEvent {
   scoringPlay?: boolean
   penaltyKick?: boolean; ownGoal?: boolean
@@ -265,8 +276,9 @@ function yyyymmdd(d: Date): string {
 function backfillDates(now: number): string[] {
   const tomorrowMax = now + 864e5
   const set = new Set<string>()
-  for (const m of FIXTURES) {
-    const t = new Date(m.date).getTime()
+  const seedDates = [...FIXTURES.map(m => m.date), ...KNOCKOUT_DATES.map(d => `${d}T20:00:00Z`)]
+  for (const date of seedDates) {
+    const t = new Date(date).getTime()
     if (t > tomorrowMax + 864e5) continue   // skip far-future days
     set.add(yyyymmdd(new Date(t)))
     set.add(yyyymmdd(new Date(t - 864e5)))   // ET/UTC boundary safety
@@ -446,6 +458,7 @@ export async function fetchLiveMatches(full = false): Promise<LiveUpdate[] | nul
 
       updates.push({
         homeId, awayId,
+        kickoff: ev.date ?? null,
         homeScore: homeComp.score !== '' ? Number(homeComp.score) : null,
         awayScore: awayComp.score !== '' ? Number(awayComp.score) : null,
         minute: isHalftime ? 45 : (minute || null),

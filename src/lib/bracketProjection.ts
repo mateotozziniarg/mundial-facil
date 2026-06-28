@@ -21,11 +21,15 @@ export interface ProjectedMatch {
 }
 
 // treeIdx → matchNum
-const TREE_TO_MATCH: Record<number, number> = {
+export const TREE_TO_MATCH: Record<number, number> = {
   1: 104, 2: 101, 3: 102, 4: 97, 5: 98, 6: 99, 7: 100,
   8: 89, 9: 90, 10: 91, 11: 92, 12: 93, 13: 94, 14: 95, 15: 96,
 }
 for (let t = 16; t <= 31; t++) TREE_TO_MATCH[t] = t + 57  // 16→73 … 31→88
+
+// matchNum → treeIdx (inverse)
+export const MATCH_TO_TREE: Record<number, number> =
+  Object.fromEntries(Object.entries(TREE_TO_MATCH).map(([t, m]) => [m, Number(t)]))
 
 /**
  * Backtracking perfect matching of qualifying third-place GROUPS to the

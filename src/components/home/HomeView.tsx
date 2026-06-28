@@ -4,15 +4,28 @@ import { MatchCard } from './MatchCard'
 import { DefiningGroupCard } from './DefiningGroupCard'
 import { DemoSection } from './DemoSection'
 import { definingGroupsFor, bestThirdRanks } from '../../lib/groupDefinition'
+import { projectBracket } from '../../lib/bracketProjection'
+import { nextCrossFor, type NextCross } from '../../lib/knockoutBuild'
 
 const API_POLL = 45_000   // hit the live API every 45s when matches are live
 
 export function HomeView() {
-  const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh } = useWorldCupStore()
+  const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh, getAllStandings, getBestThirds } = useWorldCupStore()
   const allMatches = useWorldCupStore(s => s.matches)
   const { live, today, tomorrow } = getMatchesForHome()
   const live_ = hasLiveMatches()
   const [showDemo, setShowDemo] = useState(false)
+
+  // Knockout forward-path map (matchNum → who the winner would face next)
+  const koPath = useMemo(() => {
+    const map = new Map<number, NextCross | null>()
+    try {
+      const projected = projectBracket(getAllStandings(), getBestThirds().map(t => t.group))
+      for (const p of projected) map.set(p.matchNum, nextCrossFor(p.matchNum, projected))
+    } catch { /* leave empty */ }
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allMatches])
 
   // 1s tick drives countdowns & live minutes
   const [now, setNow] = useState(() => Date.now())
@@ -72,19 +85,19 @@ export function HomeView() {
 
       {live.length > 0 && (
         <Section title="En curso" accent="live" count={live.length}>
-          <Grid>{live.map((m, i) => <MatchCard key={m.id} match={m} now={now} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
+          <Grid>{live.map((m, i) => <MatchCard key={m.id} match={m} now={now} nextCross={koPath.get(m.id)} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
         </Section>
       )}
 
       {today.length > 0 && (
         <Section title="Hoy" accent="gold" count={today.length}>
-          <Grid>{today.map((m, i) => <MatchCard key={m.id} match={m} now={now} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
+          <Grid>{today.map((m, i) => <MatchCard key={m.id} match={m} now={now} nextCross={koPath.get(m.id)} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
         </Section>
       )}
 
       {tomorrow.length > 0 && (
         <Section title="Mañana" accent="grass" count={tomorrow.length}>
-          <Grid>{tomorrow.map((m, i) => <MatchCard key={m.id} match={m} now={now} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
+          <Grid>{tomorrow.map((m, i) => <MatchCard key={m.id} match={m} now={now} nextCross={koPath.get(m.id)} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
         </Section>
       )}
 
