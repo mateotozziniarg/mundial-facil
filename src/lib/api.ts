@@ -15,6 +15,7 @@ const ESPN_BASE    = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.
 const ESPN_SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary'
 
 export interface LiveUpdate {
+  espnId: string           // ESPN event id (stable across refreshes)
   homeId: string
   awayId: string
   kickoff: string | null   // ESPN's real kickoff ISO date (corrects KO placeholders)
@@ -457,6 +458,7 @@ export async function fetchLiveMatches(full = false): Promise<LiveUpdate[] | nul
       const p2Stoppage = (!isHalftime && period === 2 && extra != null) ? extra : null
 
       updates.push({
+        espnId: ev.id ?? '',
         homeId, awayId,
         kickoff: ev.date ?? null,
         homeScore: homeComp.score !== '' ? Number(homeComp.score) : null,

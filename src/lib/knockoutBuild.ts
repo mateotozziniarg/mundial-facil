@@ -48,6 +48,19 @@ function groupStageComplete(groupMatches: Match[]): boolean {
     && groupMatches.every(m => m.status === 'finished' && m.homeScore != null && m.awayScore != null)
 }
 
+/** Infer the knockout round from a match date (used when ingesting an ESPN
+ *  event we didn't have a seed for). Falls back to 'r32' for anything earlier. */
+export function stageForDate(iso: string | null | undefined): Stage {
+  const t = iso ? +new Date(iso) : NaN
+  if (isNaN(t)) return 'r32'
+  if (t < +new Date('2026-07-04T00:00:00Z')) return 'r32'
+  if (t < +new Date('2026-07-08T00:00:00Z')) return 'r16'
+  if (t < +new Date('2026-07-12T00:00:00Z')) return 'qf'
+  if (t < +new Date('2026-07-17T00:00:00Z')) return 'sf'
+  if (t < +new Date('2026-07-19T00:00:00Z')) return 'third'
+  return 'final'
+}
+
 // ─── Winner / loser of a decided knockout match ───────────────────────────────
 
 export function winnerOf(m: Match | undefined): string | null {
