@@ -12,20 +12,27 @@ const API_POLL = 45_000   // hit the live API every 45s when matches are live
 export function HomeView() {
   const { getMatchesForHome, refresh, hasLiveMatches, lastRefresh, getAllStandings, getBestThirds } = useWorldCupStore()
   const allMatches = useWorldCupStore(s => s.matches)
-  const { live, today, tomorrow } = getMatchesForHome()
+  const { live, today, tomorrow, upcoming } = getMatchesForHome()
   const live_ = hasLiveMatches()
   const [showDemo, setShowDemo] = useState(false)
 
-  // Knockout forward-path map (matchNum → who the winner would face next)
+  // Knockout forward-path map, keyed by team-pair so it works for both our
+  // generated matches and ESPN-ingested ones (which carry ESPN ids).
   const koPath = useMemo(() => {
-    const map = new Map<number, NextCross | null>()
+    const map = new Map<string, NextCross | null>()
     try {
       const projected = projectBracket(getAllStandings(), getBestThirds().map(t => t.group))
-      for (const p of projected) map.set(p.matchNum, nextCrossFor(p.matchNum, projected))
+      for (const p of projected) {
+        if (p.top.team && p.bottom.team) {
+          map.set([p.top.team.id, p.bottom.team.id].sort().join('|'), nextCrossFor(p.matchNum, projected))
+        }
+      }
     } catch { /* leave empty */ }
     return map
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allMatches])
+  const pathFor = (m: { homeTeamId: string; awayTeamId: string }) =>
+    koPath.get([m.homeTeamId, m.awayTeamId].sort().join('|'))
 
   // 1s tick drives countdowns & live minutes
   const [now, setNow] = useState(() => Date.now())
@@ -58,7 +65,7 @@ export function HomeView() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [live_, refresh])
 
-  const hasContent = live.length > 0 || today.length > 0 || tomorrow.length > 0
+  const hasContent = live.length > 0 || today.length > 0 || tomorrow.length > 0 || upcoming.length > 0
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-9">
@@ -85,19 +92,25 @@ export function HomeView() {
 
       {live.length > 0 && (
         <Section title="En curso" accent="live" count={live.length}>
-          <Grid>{live.map((m, i) => <MatchCard key={m.id} match={m} now={now} nextCross={koPath.get(m.id)} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
+          <Grid>{live.map((m, i) => <MatchCard key={m.id} match={m} now={now} nextCross={pathFor(m)} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
         </Section>
       )}
 
       {today.length > 0 && (
         <Section title="Hoy" accent="gold" count={today.length}>
-          <Grid>{today.map((m, i) => <MatchCard key={m.id} match={m} now={now} nextCross={koPath.get(m.id)} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
+          <Grid>{today.map((m, i) => <MatchCard key={m.id} match={m} now={now} nextCross={pathFor(m)} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
         </Section>
       )}
 
       {tomorrow.length > 0 && (
         <Section title="Mañana" accent="grass" count={tomorrow.length}>
-          <Grid>{tomorrow.map((m, i) => <MatchCard key={m.id} match={m} now={now} nextCross={koPath.get(m.id)} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
+          <Grid>{tomorrow.map((m, i) => <MatchCard key={m.id} match={m} now={now} nextCross={pathFor(m)} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
+        </Section>
+      )}
+
+      {upcoming.length > 0 && (
+        <Section title="Próximos" accent="grass" count={upcoming.length}>
+          <Grid>{upcoming.map((m, i) => <MatchCard key={m.id} match={m} now={now} nextCross={pathFor(m)} style={{ animationDelay: `${i*40}ms` }} />)}</Grid>
         </Section>
       )}
 

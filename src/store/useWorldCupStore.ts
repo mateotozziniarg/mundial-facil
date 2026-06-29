@@ -4,19 +4,50 @@ import type { Match, StandingRow, GroupId } from '../types'
 import { FIXTURES } from '../data/fixtures'
 import { TEAMS } from '../data/teams'
 import { computeStandings, computeProvisionalStandings, compareBestThirds } from '../lib/standings'
-import { fetchLiveMatches } from '../lib/api'
+import { fetchLiveMatches, type LiveUpdate } from '../lib/api'
 import { effectiveStatus } from '../lib/dateUtils'
-import { buildDeterminedKnockout } from '../lib/knockoutBuild'
+import { stageForDate } from '../lib/knockoutBuild'
 
-/** Append any newly-determinable knockout matches (R32 once groups end, then
- *  each later round as its feeders are decided). Pure + additive by match id. */
-function withKnockout(matches: Match[]): Match[] {
-  try {
-    const built = buildDeterminedKnockout(matches)
-    return built.length > 0 ? [...matches, ...built] : matches
-  } catch {
-    return matches   // never let bracket generation break a refresh
+const pairKey = (a: string, b: string) => [a, b].sort().join('|')
+
+/** Build a brand-new match from an ESPN event we had no seed for (knockout). */
+function matchFromUpdate(u: LiveUpdate): Match {
+  const id = Number(u.espnId)
+  return {
+    id: Number.isFinite(id) && id > 0 ? id : Math.abs(hashPair(u.homeId, u.awayId)),
+    homeTeamId: u.homeId,
+    awayTeamId: u.awayId,
+    homeScore: u.homeScore,
+    awayScore: u.awayScore,
+    minute: u.minute,
+    status: u.status,
+    date: u.kickoff ?? new Date().toISOString(),
+    venue: '', city: '',
+    group: null,
+    stage: stageForDate(u.kickoff),
+    extraMinute: u.extraMinute,
+    period: u.period,
+    isHalftime: u.isHalftime,
+    aet: u.aet,
+    homePenalties: u.homePenalties,
+    awayPenalties: u.awayPenalties,
+    scorers: u.scorers,
+    cards: u.cards,
+    homePossession: u.homePossession,
+    awayPossession: u.awayPossession,
+    attendance: u.attendance,
+    referee: u.referee,
+    p1Stoppage: u.p1Stoppage,
+    p2Stoppage: u.p2Stoppage,
+    interruption: u.interruption,
   }
+}
+
+function hashPair(a: string, b: string): number {
+  const s = pairKey(a, b)
+  let h = 9_000_000
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
+  return h
 }
 
 type View = 'home' | 'groups' | 'brackets' | 'calculator' | 'calendar'
@@ -31,7 +62,7 @@ interface WorldCupState {
   getGroupStandings: (group: GroupId) => StandingRow[]
   getAllStandings: () => Record<GroupId, StandingRow[]>
   getBestThirds: () => (StandingRow & { group: GroupId })[]
-  getMatchesForHome: () => { live: Match[]; today: Match[]; tomorrow: Match[] }
+  getMatchesForHome: () => { live: Match[]; today: Match[]; tomorrow: Match[]; upcoming: Match[] }
   hasLiveMatches: () => boolean
   // Live "as of now" standings that fold in current live scores
   getProvisionalStandings: (group: GroupId) => StandingRow[]
@@ -104,10 +135,12 @@ export const useWorldCupStore = create<WorldCupState>()(
         const { matches } = get()
         const today    = nowArgBucket()
         const tomorrow = tomorrowArgBucket()
+        const now = Date.now()
 
-        const live: Match[]     = []
-        const todayM: Match[]   = []
+        const live: Match[]      = []
+        const todayM: Match[]    = []
         const tomorrowM: Match[] = []
+        const upcoming: Match[]  = []
 
         for (const m of matches) {
           const bucket = dateArgBucket(m.date)
@@ -118,16 +151,19 @@ export const useWorldCupStore = create<WorldCupState>()(
             live.push(m)
           } else if (status === 'finished' || interrupted) {
             if (bucket === today) todayM.push(m)
-          } else {
+          } else { // scheduled
             if (bucket === today) todayM.push(m)
             else if (bucket === tomorrow) tomorrowM.push(m)
+            else if (new Date(m.date).getTime() > now) upcoming.push(m)  // día siguiente en adelante
           }
         }
 
-        todayM.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        tomorrowM.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        const byDate = (a: Match, b: Match) => new Date(a.date).getTime() - new Date(b.date).getTime()
+        todayM.sort(byDate)
+        tomorrowM.sort(byDate)
+        upcoming.sort(byDate)
 
-        return { live, today: todayM, tomorrow: tomorrowM }
+        return { live, today: todayM, tomorrow: tomorrowM, upcoming: upcoming.slice(0, 16) }
       },
 
       hasLiveMatches: () => {
@@ -181,21 +217,22 @@ export const useWorldCupStore = create<WorldCupState>()(
         try {
           const updates = await fetchLiveMatches(full)
           if (updates && updates.length > 0) {
-            const byPair = new Map<string, (typeof updates)[number]>()
-            for (const u of updates) {
-              byPair.set([u.homeId, u.awayId].sort().join('|'), u)
-            }
-            set(state => ({
-              matches: withKnockout(state.matches.map(m => {
-                const u = byPair.get([m.homeTeamId, m.awayTeamId].sort().join('|'))
+            const byPair = new Map<string, LiveUpdate>()
+            for (const u of updates) byPair.set(pairKey(u.homeId, u.awayId), u)
+
+            set(state => {
+              // Pass 1: apply each update onto the matching existing fixture.
+              const existingPairs = new Set(state.matches.map(m => pairKey(m.homeTeamId, m.awayTeamId)))
+              const mapped = state.matches.map(m => {
+                const u = byPair.get(pairKey(m.homeTeamId, m.awayTeamId))
                 if (!u) return m
                 const flipped = u.homeId !== m.homeTeamId
                 const home = flipped ? u.awayScore : u.homeScore
                 const away = flipped ? u.homeScore : u.awayScore
                 return {
                   ...m,
-                  // Correct a generated knockout placeholder's kickoff with ESPN's
-                  // real date (group dates are already correct, so leave them).
+                  // Correct a knockout match's kickoff with ESPN's real date
+                  // (group dates are already correct, so leave them).
                   date:           m.stage !== 'group' && u.kickoff ? u.kickoff : m.date,
                   homeScore:      home ?? m.homeScore,
                   awayScore:      away ?? m.awayScore,
@@ -221,13 +258,19 @@ export const useWorldCupStore = create<WorldCupState>()(
                     : (m.p2Stoppage ?? null),
                   interruption: u.interruption,
                 }
-              })),
-              lastRefresh: Date.now(),
-            }))
+              })
+              // Pass 2: ingest any ESPN event we had no fixture for (knockout
+              // matches). ESPN is the source of truth — this is what makes a
+              // live R32/R16/etc. show up even if our projection differs.
+              const added = [...byPair.values()]
+                .filter(u => !existingPairs.has(pairKey(u.homeId, u.awayId)))
+                .map(matchFromUpdate)
+
+              return { matches: added.length > 0 ? [...mapped, ...added] : mapped }
+            })
+            set({ lastRefresh: Date.now() })
           } else {
-            // No ESPN updates, but the group stage may have just completed in the
-            // seed data — still try to materialize the knockout bracket.
-            set(state => ({ matches: withKnockout(state.matches), lastRefresh: Date.now() }))
+            set({ lastRefresh: Date.now() })
           }
         } finally {
           set({ isRefreshing: false })
@@ -243,7 +286,7 @@ export const useWorldCupStore = create<WorldCupState>()(
       },
     }),
     {
-      name: 'mundial-facil-v4',
+      name: 'mundial-facil-v5',
       partialize: (s) => ({ matches: s.matches }),
     },
   ),

@@ -1,7 +1,23 @@
 import { describe, it, expect } from 'vitest'
-import { buildDeterminedKnockout, winnerOf, loserOf } from './knockoutBuild'
+import { buildDeterminedKnockout, winnerOf, loserOf, stageForDate } from './knockoutBuild'
 import { FIXTURES } from '../data/fixtures'
 import type { Match } from '../types'
+
+describe('stageForDate', () => {
+  it('maps knockout calendar dates to rounds', () => {
+    expect(stageForDate('2026-06-28T20:00:00Z')).toBe('r32')
+    expect(stageForDate('2026-07-03T20:00:00Z')).toBe('r32')
+    expect(stageForDate('2026-07-05T20:00:00Z')).toBe('r16')
+    expect(stageForDate('2026-07-10T20:00:00Z')).toBe('qf')
+    expect(stageForDate('2026-07-14T20:00:00Z')).toBe('sf')
+    expect(stageForDate('2026-07-18T20:00:00Z')).toBe('third')
+    expect(stageForDate('2026-07-19T20:00:00Z')).toBe('final')
+  })
+  it('falls back to r32 on bad input', () => {
+    expect(stageForDate(null)).toBe('r32')
+    expect(stageForDate('nonsense')).toBe('r32')
+  })
+})
 
 // All group matches finished (home wins 1-0) → standings fully determined.
 function finishedGroups(): Match[] {
